@@ -358,7 +358,7 @@ format_issue_json(issue)
 	var out = {
 		id: issue.key,
 		summary: issue.fields.summary,
-		web_url: 'http://smartos.org/bugview/' + issue.key
+		web_url: 'https://smartos.org/bugview/' + issue.key
 	};
 
 	return (JSON.stringify(out));

@@ -49,7 +49,8 @@ read_config(log)
 	var c = JSON.parse(f);
 
 	try {
-		var CHECK = [ 'username', 'password', 'url', 'label', 'port' ];
+		var CHECK = [ 'username', 'password', 'url', 'label', 'port',
+		    'http_proto' ];
 		for (var i = 0; i < CHECK.length; i++) {
 			mod_assert.ok(c[CHECK[i]], 'config.' + CHECK[i]);
 		}
@@ -108,6 +109,17 @@ template(nam)
 	return (TEMPLATES[nam]);
 }
 
+function
+format_primary(content)
+{
+	var out = template('primary');
+
+	out = out.replace(/%%CONTAINER%%/g, content);
+	out = out.replace(/%%HTTP%%/g, CONFIG.http_proto);
+
+	return (out);
+}
+
 
 function
 handle_issue_index(req, res, next)
@@ -150,8 +162,7 @@ handle_issue_index(req, res, next)
 		/*
 		 * Construct page from primary template and our table:
 		 */
-		var out = template('primary');
-		out = out.replace(/%%CONTAINER%%/g, container);
+		var out = format_primary(container);
 
 		/*
 		 * Deliver response to client:
@@ -297,8 +308,7 @@ handle_issue(req, res, next)
 		 * Construct our page from the primary template with the
 		 * formatted issue in the container:
 		 */
-		var out = template('primary');
-		out = out.replace(/%%CONTAINER%%/g, format_issue(issue));
+		var out = format_primary(format_issue(issue));
 
 		/*
 		 * Deliver response to client:
@@ -358,7 +368,8 @@ format_issue_json(issue)
 	var out = {
 		id: issue.key,
 		summary: issue.fields.summary,
-		web_url: 'http://smartos.org/bugview/' + issue.key
+		web_url: CONFIG.http_proto + '://smartos.org/bugview/' +
+		    issue.key
 	};
 
 	return (JSON.stringify(out));

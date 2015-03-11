@@ -74,8 +74,10 @@ create_http_server(log, callback)
 		})
 	});
 
-	s.get('/bugview', function (req, res, next) {
-		res.header('Location', req.url + '/index.html');
+	s.get(/^\/bugview\/*$/, function (req, res, next) {
+		var base = req.url.replace(/\/*$/, '');
+
+		res.header('Location', base + '/index.html');
 		res.send(302);
 		next(false);
 	});

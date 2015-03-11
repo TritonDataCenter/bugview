@@ -83,6 +83,10 @@ create_http_server(log, callback)
 	s.get('/bugview/json/:key', handle_issue_json);
 	s.get('/bugview/:key', handle_issue);
 
+	s.on('uncaughtException', function (req, res, route, err) {
+		req.log.error(err, 'uncaught exception!');
+	});
+
 	s.listen(CONFIG.port, function (err) {
 		if (err) {
 			log.error(err, 'http listen error');

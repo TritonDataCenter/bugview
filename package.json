@@ -7,8 +7,9 @@
   "license": "MIT",
   "private": true,
   "dependencies": {
-    "restify": "~2.6.1",
+    "assert-plus": "^0.1.5",
     "bunyan": "~0.22.1",
-    "ent": "~2.0.0"
+    "ent": "~2.0.0",
+    "restify": "~2.6.1"
   }
 }

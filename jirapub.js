@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* vim: set ts=8 sts=8 sw=8 noet: */
 
-var mod_assert = require('assert');
+var mod_assert = require('assert-plus');
 var mod_restify = require('restify');
 var mod_bunyan = require('bunyan');
 var mod_fs = require('fs');
@@ -54,8 +54,8 @@ read_config(log)
 		for (var i = 0; i < CHECK.length; i++) {
 			mod_assert.ok(c[CHECK[i]], 'config.' + CHECK[i]);
 		}
-		mod_assert.ok(c.url.base, 'config.url.base');
-		mod_assert.ok(c.url.path, 'config.url.path');
+		mod_assert.string(c.url.base, 'config.url.base');
+		mod_assert.string(c.url.path, 'config.url.path');
 	} catch (ex) {
 		log.error(ex, 'configuration validation failed');
 		process.exit(1);
@@ -104,7 +104,8 @@ create_http_server(log, callback)
 function
 template(nam)
 {
-	mod_assert.strictEqual(typeof (TEMPLATES[nam]), 'string', 'template');
+	mod_assert.string(nam, 'nam');
+	mod_assert.string(TEMPLATES[nam], 'TEMPLATES["' + nam + '"]');
 
 	return (TEMPLATES[nam]);
 }
@@ -112,6 +113,8 @@ template(nam)
 function
 format_primary(content)
 {
+	mod_assert.string(content, 'content');
+
 	var out = template('primary');
 
 	out = out.replace(/%%CONTAINER%%/g, content);

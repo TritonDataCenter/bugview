@@ -74,6 +74,10 @@ create_http_server(log, callback)
 		})
 	});
 
+	s.use(mod_restify.queryParser({
+		mapParams: false
+	}));
+
 	s.get(/^\/bugview\/*$/, function (req, res, next) {
 		var base = req.url.replace(/\/*$/, '');
 
@@ -144,9 +148,22 @@ handle_issue_index(req, res, next)
 		issue_index: true
 	});
 
-	var url = CONFIG.url.path + '/search?jql=labels%20%3D%20%22' +
-	    CONFIG.label + '%22&fields=summary';
+	var offset;
+	if (req.query && req.query.offset) {
+		offset = parseInt(req.query.offset, 10);
+	}
+	if (!offset || isNaN(offset) || offset < 0 || offset > 10000000) {
+		offset = 0;
+	}
+	offset = Math.floor(offset / 50) * 50;
 
+	var url = CONFIG.url.path + '/search?jql=labels%20%3D%20%22' +
+	    CONFIG.label + '%22&fields=summary&startAt=' + offset;
+
+	log.info({
+		url: url,
+		offset: offset
+	}, 'fetch from JIRA');
 	JIRA.get(url, function (_err, _req, _res, results) {
 		if (_err) {
 			log.error(_err, 'error communicating with JIRA');
@@ -155,7 +172,25 @@ handle_issue_index(req, res, next)
 			return;
 		}
 
-		log.info('serving issue index');
+		var total = Number(results.total) || 10000000;
+
+		if (offset > total) {
+			var x = Math.max(total - 50, 0);
+			log.info({
+				offset: offset,
+				total: total,
+				redir_offset: x
+			}, 'redirecting to last page');
+			res.header('Location', 'index.html?offset=' + x);
+			res.send(302);
+			next(false);
+			return;
+		}
+
+		log.info({
+			offset: offset,
+			total: total
+		}, 'serving issue index');
 
 		/*
 		 * Construct Issue Index table:
@@ -169,6 +204,28 @@ handle_issue_index(req, res, next)
 			    issue.fields.summary + '</td></tr>\n';
 		}
 		container = container.replace(/%%TABLE_BODY%%/g, tbody);
+
+		/*
+		 * Construct paginated navigation links:
+		 */
+		var pagin = [];
+		pagin.push('<a href="index.html?offset=0">First Page</a>');
+		if (offset > 0) {
+			var prev = Math.max(offset - 50, 0);
+			pagin.push('<a href="index.html?offset=' +
+			    prev + '">Previous Page</a>');
+		}
+		if (total) {
+			var count = Math.min(50, total - offset);
+			pagin.push('Displaying from ' + offset + ' to ' +
+			    (count + offset) + ' of ' + total);
+		}
+		if ((offset + 50) <= total) {
+			pagin.push('<a href="index.html?offset=' +
+			    (offset + 50) + '">Next Page</a>');
+		}
+		container = container.replace(/%%PAGINATION%%/g,
+		    pagin.join(' | '));
 
 		/*
 		 * Construct page from primary template and our table:

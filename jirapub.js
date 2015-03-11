@@ -115,14 +115,16 @@ template(nam)
 }
 
 function
-format_primary(content)
+format_primary(title, content)
 {
+	mod_assert.string(title, 'title');
 	mod_assert.string(content, 'content');
 
 	var out = template('primary');
 
 	out = out.replace(/%%CONTAINER%%/g, content);
 	out = out.replace(/%%HTTP%%/g, CONFIG.http_proto);
+	out = out.replace(/%%TITLE%%/g, title);
 
 	return (out);
 }
@@ -169,7 +171,8 @@ handle_issue_index(req, res, next)
 		/*
 		 * Construct page from primary template and our table:
 		 */
-		var out = format_primary(container);
+		var out = format_primary('SmartOS Public Issues Index',
+		    container);
 
 		/*
 		 * Deliver response to client:
@@ -315,7 +318,8 @@ handle_issue(req, res, next)
 		 * Construct our page from the primary template with the
 		 * formatted issue in the container:
 		 */
-		var out = format_primary(format_issue(issue));
+		var out = format_primary(format_issue_title(issue),
+		    format_issue(issue));
 
 		/*
 		 * Deliver response to client:
@@ -380,6 +384,24 @@ format_issue_json(issue)
 	};
 
 	return (JSON.stringify(out));
+}
+
+function
+format_issue_title(issue)
+{
+	mod_assert.object(issue, 'issue');
+	mod_assert.string(issue.key, 'issue.key');
+	mod_assert.object(issue.fields, 'issue.fields');
+	mod_assert.optionalString(issue.fields.summary,
+	    'issue.fields.summary');
+
+	var out = issue.key;
+
+	if (issue.fields.summary) {
+		out += ': ' + issue.fields.summary;
+	}
+
+	return (out);
 }
 
 function

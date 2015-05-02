@@ -512,7 +512,7 @@ parse_jira_markup(desc)
 			continue;
 		}
 
-		if (c === '*') {
+		if (c === '*' && formats[0] !== 'CODE') {
 			commit_text();
 			if (formats[0] === 'BOLD') {
 				formats.pop();
@@ -520,6 +520,18 @@ parse_jira_markup(desc)
 			} else {
 				formats.push('BOLD');
 				out.push('<b>');
+			}
+			continue;
+		}
+
+		if (c === '_' && formats[0] !== 'CODE') {
+			commit_text();
+			if (formats[0] === 'ITALIC') {
+				formats.pop();
+				out.push('</i>');
+			} else {
+				formats.push('ITALIC');
+				out.push('<i>');
 			}
 			continue;
 		}

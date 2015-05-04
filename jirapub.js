@@ -413,6 +413,34 @@ fix_url(input)
 }
 
 /*
+ * If this character appears before a formatting character, such as "*" or "_",
+ * then the formatting character takes effect.  Used to allow formatting
+ * characters to appear mid-word without being interpreted as a formatting
+ * character.
+ */
+function
+prefmtok(x)
+{
+	if (x === null) {
+		return (true);
+	}
+
+	var cc_A = 'A'.charCodeAt(0);
+	var cc_a = 'a'.charCodeAt(0);
+	var cc_Z = 'Z'.charCodeAt(0);
+	var cc_z = 'z'.charCodeAt(0);
+
+	var cc = x.charCodeAt(0);
+
+	if ((cc >= cc_A && cc <= cc_Z) ||
+	    (cc >= cc_a && cc <= cc_z)) {
+		return (false);
+	}
+
+	return (true);
+}
+
+/*
  * Make some attempt to parse JIRA markup.  This is neither rigorous, nor
  * even particularly compliant, but it improves the situation somewhat.
  */
@@ -436,6 +464,7 @@ parse_jira_markup(desc)
 	for (var i = 0; i < desc.length; i++) {
 		var c = desc[i];
 		var cc = desc[i + 1];
+		var pc = i > 0 ? desc[i - 1] : null;
 
 		mod_assert.notStrictEqual(c, '\n');
 		mod_assert.notStrictEqual(c, '\r');
@@ -517,11 +546,12 @@ parse_jira_markup(desc)
 			if (formats[0] === 'BOLD') {
 				formats.pop();
 				out.push('</b>');
-			} else {
+				continue;
+			} else if (prefmtok(pc)) {
 				formats.push('BOLD');
 				out.push('<b>');
+				continue;
 			}
-			continue;
 		}
 
 		if (c === '_' && formats[0] !== 'CODE') {
@@ -529,11 +559,12 @@ parse_jira_markup(desc)
 			if (formats[0] === 'ITALIC') {
 				formats.pop();
 				out.push('</i>');
-			} else {
+				continue;
+			} else if (prefmtok(pc)) {
 				formats.push('ITALIC');
 				out.push('<i>');
+				continue;
 			}
-			continue;
 		}
 
 		if (c === '{' && cc === '{') {

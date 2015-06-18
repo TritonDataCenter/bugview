@@ -7,9 +7,11 @@ var mod_bunyan = require('bunyan');
 var mod_fs = require('fs');
 var mod_path = require('path');
 var mod_ent = require('ent');
+var mod_url = require('url');
 
 var LOG = mod_bunyan.createLogger({
-	name: 'jirapub'
+	name: 'jirapub',
+	level: process.env.LOG_LEVEL || mod_bunyan.INFO
 });
 
 var TEMPLATES = {};
@@ -403,10 +405,57 @@ function
 fix_url(input)
 {
 	var out = input.trim();
+	var url;
 
-	if (out.match(/mo\.joyent\.com\/illumos-joyent/)) {
-		out = out.replace(/mo\.joyent\.com\/illumos-joyent/,
-		    'github.com/joyent/illumos-joyent');
+	var SUBS = {
+		'mo.joyent.com': [
+			{
+				h: 'github.com',
+				m: '/illumos-joyent',
+				p: '/joyent/illumos-joyent'
+			},
+			{
+				h: 'github.com',
+				m: '/smartos-live',
+				p: '/joyent/smartos-live'
+			},
+			{
+				h: 'github.com',
+				m: '/illumos-extra',
+				p: '/joyent/illumos-extra'
+			},
+			{
+				h: 'github.com',
+				m: '/sdc-napi',
+				p: '/joyent/sdc-napi'
+			}
+		]
+	};
+
+	try {
+		url = mod_url.parse(out);
+	} catch (ex) {
+		LOG.error({
+			err: ex,
+			url: out
+		}, 'url parse error');
+		return (out);
+	}
+
+	if (!SUBS[url.hostname]) {
+		return (mod_ent.encode(out));
+	}
+
+	for (var i = 0; i < SUBS[url.hostname].length; i++) {
+		var s = SUBS[url.hostname][i];
+		var re = new RegExp('^' + s.m);
+
+		if (re.test(url.pathname)) {
+			url.hostname = url.host = s.h;
+			url.path = url.pathname =
+			    url.pathname.replace(re, s.p);
+			return (mod_ent.encode(mod_url.format(url)));
+		}
 	}
 
 	return (mod_ent.encode(out));

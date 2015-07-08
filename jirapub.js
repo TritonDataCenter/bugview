@@ -8,9 +8,11 @@ var mod_fs = require('fs');
 var mod_path = require('path');
 var mod_ent = require('ent');
 var mod_human = require('human-time');
+var mod_url = require('url');
 
 var LOG = mod_bunyan.createLogger({
-	name: 'jirapub'
+	name: 'jirapub',
+	level: process.env.LOG_LEVEL || mod_bunyan.INFO
 });
 
 var TEMPLATES = {};
@@ -401,19 +403,263 @@ handle_issue(req, res, next)
  */
 
 function
+fix_url(input)
+{
+	var out = input.trim();
+	var url;
+
+	var SUBS = {
+		'mo.joyent.com': [
+			{
+				h: 'github.com',
+				m: '/illumos-joyent',
+				p: '/joyent/illumos-joyent'
+			},
+			{
+				h: 'github.com',
+				m: '/smartos-live',
+				p: '/joyent/smartos-live'
+			},
+			{
+				h: 'github.com',
+				m: '/illumos-extra',
+				p: '/joyent/illumos-extra'
+			},
+			{
+				h: 'github.com',
+				m: '/sdc-napi',
+				p: '/joyent/sdc-napi'
+			}
+		]
+	};
+
+	try {
+		url = mod_url.parse(out);
+	} catch (ex) {
+		LOG.error({
+			err: ex,
+			url: out
+		}, 'url parse error');
+		return (out);
+	}
+
+	if (!SUBS[url.hostname]) {
+		return (mod_ent.encode(out));
+	}
+
+	for (var i = 0; i < SUBS[url.hostname].length; i++) {
+		var s = SUBS[url.hostname][i];
+		var re = new RegExp('^' + s.m);
+
+		if (re.test(url.pathname)) {
+			url.hostname = url.host = s.h;
+			url.path = url.pathname =
+			    url.pathname.replace(re, s.p);
+			return (mod_ent.encode(mod_url.format(url)));
+		}
+	}
+
+	return (mod_ent.encode(out));
+}
+
+/*
+ * If this character appears before a formatting character, such as "*" or "_",
+ * then the formatting character takes effect.  Used to allow formatting
+ * characters to appear mid-word without being interpreted as a formatting
+ * character.
+ */
+function
+prefmtok(x)
+{
+	if (x === null) {
+		return (true);
+	}
+
+	var cc_A = 'A'.charCodeAt(0);
+	var cc_a = 'a'.charCodeAt(0);
+	var cc_Z = 'Z'.charCodeAt(0);
+	var cc_z = 'z'.charCodeAt(0);
+
+	var cc = x.charCodeAt(0);
+
+	if ((cc >= cc_A && cc <= cc_Z) ||
+	    (cc >= cc_a && cc <= cc_z)) {
+		return (false);
+	}
+
+	return (true);
+}
+
+/*
+ * Make some attempt to parse JIRA markup.  This is neither rigorous, nor
+ * even particularly compliant, but it improves the situation somewhat.
+ */
+function
+parse_jira_markup(desc)
+{
+	var text = '';
+	var formats = [];
+	var out = [];
+	var state = 'TEXT';
+	var link_title = '';
+	var link_url = '';
+
+	var commit_text = function () {
+		if (text !== '') {
+			out.push(mod_ent.encode(text));
+			text = '';
+		}
+	};
+
+	for (var i = 0; i < desc.length; i++) {
+		var c = desc[i];
+		var cc = desc[i + 1];
+		var pc = i > 0 ? desc[i - 1] : null;
+
+		mod_assert.notStrictEqual(c, '\n');
+		mod_assert.notStrictEqual(c, '\r');
+
+		switch (state) {
+		case 'TEXT':
+			if (c === '[') {
+				commit_text();
+				link_title = '';
+				link_url = '';
+				if (cc === '~') {
+					i++; /* skip cc */
+					state = 'LINK_USER';
+				} else if (cc === '^') {
+					i++; /* skip cc */
+					state = 'LINK_ATTACHMENT';
+				} else {
+					state = 'LINK_TITLE';
+				}
+				continue;
+			}
+			break;
+
+		case 'LINK_TITLE':
+			if (c === '|') {
+				state = 'LINK_URL';
+			} else if (c === ']') {
+				out.push('<a href="' + fix_url(link_title) +
+				    '" target="_new">');
+				out.push(mod_ent.encode(link_title));
+				out.push('</a>');
+
+				state = 'TEXT';
+			} else {
+				link_title += c;
+			}
+			continue;
+
+		case 'LINK_USER':
+			if (c === ']') {
+				out.push('<b>@');
+				out.push(mod_ent.encode(link_title));
+				out.push('</b>');
+
+				state = 'TEXT';
+			} else {
+				link_title += c;
+			}
+			continue;
+
+		case 'LINK_ATTACHMENT':
+			if (c === ']') {
+				out.push('<b>[attachment ');
+				out.push(mod_ent.encode(link_title));
+				out.push(']</b>');
+
+				state = 'TEXT';
+			} else {
+				link_title += c;
+			}
+			continue;
+
+		case 'LINK_URL':
+			if (c === ']') {
+				out.push('<a href="' + fix_url(link_url) +
+				    '" target="_new">');
+				out.push(mod_ent.encode(link_title));
+				out.push('</a>');
+
+				state = 'TEXT';
+			} else {
+				link_url += c;
+			}
+			continue;
+		}
+
+		if (c === '*' && formats[0] !== 'CODE') {
+			commit_text();
+			if (formats[0] === 'BOLD') {
+				formats.pop();
+				out.push('</b>');
+				continue;
+			} else if (prefmtok(pc)) {
+				formats.push('BOLD');
+				out.push('<b>');
+				continue;
+			}
+		}
+
+		if (c === '_' && formats[0] !== 'CODE') {
+			commit_text();
+			if (formats[0] === 'ITALIC') {
+				formats.pop();
+				out.push('</i>');
+				continue;
+			} else if (prefmtok(pc)) {
+				formats.push('ITALIC');
+				out.push('<i>');
+				continue;
+			}
+		}
+
+		if (c === '{' && cc === '{') {
+			i++; /* skip cc */
+			formats.push('CODE');
+			commit_text();
+			out.push('<code>');
+			continue;
+		}
+
+		if (c === '}' && cc === '}' && formats[0] === 'CODE') {
+			i++; /* skip cc */
+			formats.pop();
+			commit_text();
+			out.push('</code>');
+			continue;
+		}
+
+		text += c;
+	}
+
+	commit_text();
+	return (out.join(''));
+}
+
+function
 format_markup(desc)
 {
 	var out = '';
 	var lines = desc.split(/\r?\n/);
 
 	var fmton = false;
+	var parse_markup = true;
 	for (var i = 0; i < lines.length; i++) {
 		var line = lines[i];
+		var lt_noformat = !!line.match(/^{noformat/);
+		var lt_code = !!line.match(/^{code/);
+		var lt_panel = !!line.match(/^{panel/);
 
-		if (line.match(/^{noformat/) || line.match(/^{code/)) {
+		if (lt_noformat || lt_code || lt_panel) {
 			if (fmton) {
+				parse_markup = true;
 				out += '</pre>\n';
 			} else {
+				parse_markup = !(lt_noformat || lt_code);
 				out += '<pre style="border: 2px solid black;' +
 				    'font-family: Menlo, Courier, ' +
 				    'Lucida Console, Monospace;' +
@@ -421,7 +667,11 @@ format_markup(desc)
 			}
 			fmton = !fmton;
 		} else {
-			out += mod_ent.encode(line);
+			if (parse_markup) {
+				out += parse_jira_markup(line);
+			} else {
+				out += mod_ent.encode(line);
+			}
 			if (fmton) {
 				out += '\n';
 			} else {

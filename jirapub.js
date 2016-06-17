@@ -763,6 +763,14 @@ format_issue(issue)
 		for (i = 0; i < c.comments.length; i++) {
 			var com = c.comments[i];
 
+			if (com.visibility) {
+				/*
+				 * For now, skip comments with _any_
+				 * visibility rules.
+				 */
+				continue;
+			}
+
 			var cdtc = new Date(com.created);
 
 			out += '<div style="background-color: ' +

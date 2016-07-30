@@ -14,6 +14,10 @@ var LOG = mod_bunyan.createLogger({
 	level: process.env.LOG_LEVEL || mod_bunyan.INFO
 });
 
+var HEADING_LEVELS = [ 1, 2, 3, 4, 5, 6 ].map(function (l) {
+	return ('' + l);
+});
+
 var TEMPLATES = {};
 
 var CONFIG = read_config(LOG);
@@ -494,7 +498,7 @@ prefmtok(x)
  * even particularly compliant, but it improves the situation somewhat.
  */
 function
-parse_jira_markup(desc)
+parse_jira_markup(desc, ps)
 {
 	var text = '';
 	var formats = [];
@@ -502,6 +506,8 @@ parse_jira_markup(desc)
 	var state = 'TEXT';
 	var link_title = '';
 	var link_url = '';
+
+	ps.ps_heading = null;
 
 	var commit_text = function () {
 		if (text !== '') {
@@ -513,6 +519,7 @@ parse_jira_markup(desc)
 	for (var i = 0; i < desc.length; i++) {
 		var c = desc[i];
 		var cc = desc[i + 1];
+		var ccc = desc[i + 2];
 		var pc = i > 0 ? desc[i - 1] : null;
 
 		mod_assert.notStrictEqual(c, '\n');
@@ -520,6 +527,31 @@ parse_jira_markup(desc)
 
 		switch (state) {
 		case 'TEXT':
+			if (i === 0 && (c === '*' || c === '-') &&
+			    cc === ' ') {
+				if (!ps.ps_list) {
+					out.push('<ul>');
+				}
+				ps.ps_list = true;
+				commit_text();
+				out.push('<li>');
+				continue;
+			} else if (ps.ps_list && i === 0 && c !== ' ') {
+				commit_text();
+				ps.ps_list = false;
+				out.push('</ul>');
+				continue;
+			}
+
+			if (i === 0 && c === 'h' && ccc === '.' &&
+			    HEADING_LEVELS.indexOf(cc) !== -1) {
+				ps.ps_heading = 'h' + cc;
+				commit_text();
+				out.push('<' + ps.ps_heading + '>');
+				i += 3;
+				continue;
+			}
+
 			if (c === '[') {
 				commit_text();
 				link_title = '';
@@ -636,6 +668,9 @@ parse_jira_markup(desc)
 	}
 
 	commit_text();
+	if (ps.ps_heading !== null) {
+		out.push('</' + ps.ps_heading + '>');
+	}
 	return (out.join(''));
 }
 
@@ -645,8 +680,13 @@ format_markup(desc)
 	var out = '';
 	var lines = desc.split(/\r?\n/);
 
+	var last_was_heading = false;
 	var fmton = false;
 	var parse_markup = true;
+	var parser_state = {
+		ps_list: false,
+		ps_heading: null
+	};
 	for (var i = 0; i < lines.length; i++) {
 		var line = lines[i];
 		var lt_noformat = !!line.match(/^{noformat/);
@@ -654,6 +694,10 @@ format_markup(desc)
 		var lt_panel = !!line.match(/^{panel/);
 
 		if (lt_noformat || lt_code || lt_panel) {
+			if (parser_state.ps_list) {
+				parser_state.ps_list = false;
+				out += '</ul>\n';
+			}
 			if (fmton) {
 				parse_markup = true;
 				out += '</pre>\n';
@@ -667,16 +711,19 @@ format_markup(desc)
 			fmton = !fmton;
 		} else {
 			if (parse_markup) {
-				out += parse_jira_markup(line);
+				out += parse_jira_markup(line, parser_state);
 			} else {
 				out += mod_ent.encode(line);
 			}
 			if (fmton) {
 				out += '\n';
-			} else {
+			} else if (parser_state.ps_heading === null &&
+			    !last_was_heading) {
 				out += '<br>\n';
 			}
 		}
+
+		last_was_heading = (parser_state.ps_heading !== null);
 	}
 
 	return (out);

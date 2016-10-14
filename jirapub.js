@@ -421,6 +421,34 @@ handle_issue(req, res, next)
  * Formatter:
  */
 
+/*
+ * Access to issues is normally restricted to those with the correct label.
+ * In the case of issue _links_, we do not have the labels for the
+ * referenced issue.  If "link_whitelist" is specified in the
+ * configuration, links to projects listed in that whitelist will be
+ * rendered as a list.  If no whitelist is provided, or the linked issue
+ * is not from a project in the whitelist, the link will not be displayed.
+ */
+function
+allow_issue(key)
+{
+	var m = key.match(/^([A-Z]+)-([0-9]+)/);
+
+	if (!CONFIG.link_whitelist) {
+		return (false);
+	}
+
+	if (!m) {
+		return (false);
+	}
+
+	if (CONFIG.link_whitelist.indexOf(m[1]) === -1) {
+		return (false);
+	}
+
+	return (true);
+}
+
 function
 fix_url(input)
 {
@@ -799,6 +827,33 @@ format_issue(issue)
 
 			out += '<p><b>' + fv.name + '</b> (Release Date: ' +
 			    fv.releaseDate + ')</p>\n';
+		}
+	}
+
+	if (issue.fields.issuelinks) {
+		var links = [];
+
+		for (i = 0; i < issue.fields.issuelinks.length; i++) {
+			var il = issue.fields.issuelinks[i];
+
+			if (il.outwardIssue &&
+			    allow_issue(il.outwardIssue.key)) {
+				links.push('<li>' + il.type.outward +
+				    ' <a href="' + il.outwardIssue.key + '">' +
+				    il.outwardIssue.key + '</a></li>');
+			}
+
+			if (il.inwardIssue &&
+			    allow_issue(il.inwardIssue.key)) {
+				links.push('<li>' + il.type.inward +
+				    ' <a href="' + il.inwardIssue.key + '">' +
+				    il.inwardIssue.key + '</a></li>');
+			}
+		}
+
+		if (links.length > 0) {
+			out += '<h2>Related Issues</h2>\n';
+			out += '<p><ul>' + links.join('\n') + '</ul></p>\n';
 		}
 	}
 

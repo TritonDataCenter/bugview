@@ -164,7 +164,8 @@ handle_issue_index(req, res, next)
 	offset = Math.floor(offset / 50) * 50;
 
 	var url = CONFIG.url.path + '/search?jql=labels%20%3D%20%22' +
-	    CONFIG.label + '%22&fields=summary&startAt=' + offset;
+	    CONFIG.label + '%22&fields=summary,resolution&startAt=' +
+	    offset;
 
 	log.info({
 		url: url,
@@ -205,9 +206,24 @@ handle_issue_index(req, res, next)
 		var tbody = '';
 		for (var i = 0; i < results.issues.length; i++) {
 			var issue = results.issues[i];
-			tbody += '<tr><td><a href="' + issue.key + '">' +
-			    issue.key + '</a></td><td>' +
-			    issue.fields.summary + '</td></tr>\n';
+			var resolution = '&nbsp';
+
+			if (issue.fields.resolution &&
+			    issue.fields.resolution.name) {
+				resolution = issue.fields.resolution.name;
+			}
+
+			tbody += [
+				'<tr><td>',
+				'<a href="' + issue.key + '">',
+				issue.key,
+				'</a>',
+				'</td><td>',
+				resolution,
+				'</td><td>',
+				issue.fields.summary,
+				'</td></tr>',
+			].join('') + '\n';
 		}
 		container = container.replace(/%%TABLE_BODY%%/g, tbody);
 

@@ -584,7 +584,12 @@ parse_jira_markup(desc, ps)
 				commit_text();
 				ps.ps_list = false;
 				out.push('</ul>');
-				continue;
+
+				/*
+				 * Note that we must break out here, so that
+				 * we don't drop this character.
+				 */
+				break;
 			}
 
 			if (i === 0 && c === 'h' && ccc === '.' &&

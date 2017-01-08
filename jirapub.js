@@ -537,6 +537,17 @@ prefmtok(x)
 	return (true);
 }
 
+function
+repeat_char(c, n)
+{
+	var out = '';
+
+	while (out.length < n)
+		out += c;
+
+	return (out);
+}
+
 /*
  * Make some attempt to parse JIRA markup.  This is neither rigorous, nor
  * even particularly compliant, but it improves the situation somewhat.
@@ -547,9 +558,10 @@ parse_jira_markup(desc, ps)
 	var text = '';
 	var formats = [];
 	var out = [];
-	var state = 'TEXT';
+	var state = 'LEADING_SPACES';
 	var link_title = '';
 	var link_url = '';
+	var leading_spaces = 0;
 
 	ps.ps_heading = null;
 
@@ -570,9 +582,11 @@ parse_jira_markup(desc, ps)
 		mod_assert.notStrictEqual(c, '\r');
 
 		switch (state) {
-		case 'TEXT':
-			if (i === 0 && (c === '*' || c === '-') &&
-			    cc === ' ') {
+		case 'LEADING_SPACES':
+			if (c === ' ') {
+				leading_spaces++;
+				continue;
+			} else if ((c === '*' || c === '-') && cc === ' ') {
 				if (!ps.ps_list) {
 					out.push('<ul>');
 				}
@@ -580,7 +594,21 @@ parse_jira_markup(desc, ps)
 				commit_text();
 				out.push('<li>');
 				continue;
-			} else if (ps.ps_list && i === 0 && c !== ' ') {
+			}
+
+			/*
+			 * No special sequence was detected, so emit the
+			 * spaces we counted, switch to the TEXT state, and
+			 * wind back by one character so we reprocess the
+			 * character we're looking at now.
+			 */
+			text += repeat_char(' ', leading_spaces);
+			state = 'TEXT';
+			i--;
+			continue;
+
+		case 'TEXT':
+			if (ps.ps_list && i === 0 && c !== ' ') {
 				commit_text();
 				ps.ps_list = false;
 				out.push('</ul>');

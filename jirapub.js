@@ -7,6 +7,7 @@ var mod_bunyan = require('bunyan');
 var mod_fs = require('fs');
 var mod_path = require('path');
 var mod_ent = require('ent');
+var mod_human = require('human-time');
 var mod_url = require('url');
 
 var LOG = mod_bunyan.createLogger({
@@ -869,7 +870,8 @@ format_issue(issue)
 		out += '<h2>Resolution</h2>\n';
 		out += '<p><b>' + issue.fields.resolution.name + ':</b> ' +
 		    issue.fields.resolution.description + '<br>\n';
-		out += '(Resolution Date: ' + rd.toISOString() + ')</p>\n';
+		out += '(Resolution Date: ' + rd.toISOString() + ' - ' +
+                    mod_human(rd) + ')</p>\n';
 	}
 
 	if (issue.fields.fixVersions && issue.fields.fixVersions.length > 0) {
@@ -878,7 +880,8 @@ format_issue(issue)
 			var fv = issue.fields.fixVersions[i];
 
 			out += '<p><b>' + fv.name + '</b> (Release Date: ' +
-			    fv.releaseDate + ')</p>\n';
+			    fv.releaseDate + ' - ' +
+                            mod_human(new Date(fv.releaseDate)) + ')</p>\n';
 		}
 	}
 
@@ -947,11 +950,13 @@ format_issue(issue)
 			    (dark ? '#DDDDDD' : '#EEEEEE') + ';">\n';
 			out += '<b>';
 			out += 'Comment by ' + com.author.displayName + '<br>\n';
-			out += 'Created at ' + cdtc.toISOString() + '<br>\n';
+			out += 'Created at ' + cdtc.toISOString() +
+			    ' (' + mod_human(cdtc) + ')<br>\n';
 			if (com.updated && com.updated !== com.created) {
+				var cdtu = new Date(com.updated);
 				out += 'Updated at ' +
-				    new Date(com.updated).toISOString() +
-				    '<br>\n';
+				    cdtu.toISOString() +
+				    ' (' + mod_human(cdtu) + ')<br>\n';
 			}
 			out += '</b>';
 			out += format_markup(com.body);

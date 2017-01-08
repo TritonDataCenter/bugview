@@ -736,6 +736,7 @@ format_markup(desc)
 
 	var last_was_heading = false;
 	var fmton = false;
+	var newline_br = false;
 	var parse_markup = true;
 	var parser_state = {
 		ps_list: false,
@@ -746,16 +747,24 @@ format_markup(desc)
 		var lt_noformat = !!line.match(/^{noformat/);
 		var lt_code = !!line.match(/^{code/);
 		var lt_panel = !!line.match(/^{panel/);
+		var lt_quote = !!line.match(/^{quote/);
 
-		if (lt_noformat || lt_code || lt_panel) {
+		if (lt_noformat || lt_code || lt_panel || lt_quote) {
 			if (parser_state.ps_list) {
 				parser_state.ps_list = false;
 				out += '</ul>\n';
 			}
 			if (fmton) {
 				parse_markup = true;
-				out += '</pre>\n';
+				out += (lt_quote ? '</div>' : '</pre>') + '\n';
+			} else if (lt_quote) {
+				newline_br = true;
+				parse_markup = true;
+				out += '<div style="border-left: 2px solid ' +
+				    '#888888; margin-left: 1em; ' +
+				    'padding-left: 1em">\n';
 			} else {
+				newline_br = false;
 				parse_markup = !(lt_noformat || lt_code);
 				out += '<pre style="border: 2px solid black;' +
 				    'font-family: Menlo, Courier, ' +
@@ -770,7 +779,7 @@ format_markup(desc)
 				out += mod_ent.encode(line);
 			}
 			if (fmton) {
-				out += '\n';
+				out += newline_br ? '<br>\n' : '\n';
 			} else if (parser_state.ps_heading === null &&
 			    !last_was_heading) {
 				out += '<br>\n';

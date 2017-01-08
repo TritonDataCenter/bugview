@@ -700,6 +700,16 @@ parse_jira_markup(desc, ps)
 			continue;
 		}
 
+		if (c === '\\' && formats[0] === 'CODE') {
+			/*
+			 * Allow for basic escaping within {{code}} blocks
+			 * by using the backslash.
+			 */
+			text += cc;
+			i++;
+			continue;
+		}
+
 		if (c === '}' && cc === '}' && formats[0] === 'CODE') {
 			i++; /* skip cc */
 			formats.pop();

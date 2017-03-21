@@ -8,6 +8,7 @@ var mod_fs = require('fs');
 var mod_path = require('path');
 var mod_ent = require('ent');
 var mod_url = require('url');
+var mod_vasync = require('vasync');
 
 var LOG = mod_bunyan.createLogger({
 	name: 'jirapub',
@@ -399,21 +400,31 @@ handle_issue(req, res, next)
 		 * Construct our page from the primary template with the
 		 * formatted issue in the container:
 		 */
-		var out = format_primary(format_issue_title(issue),
-		    format_issue(issue));
+		format_issue({ issue: issue, log: log },
+		    function (err, formatted) {
+			if (err) {
+				log.error(err, 'format issue failed');
+				res.send(500);
+				next(false);
+				return;
+			}
 
-		/*
-		 * Deliver response to client:
-		 */
-		res.contentType = 'text/html';
-		res.contentLength = out.length;
+			var out = format_primary(format_issue_title(issue),
+			    formatted);
 
-		res.writeHead(200);
-		res.write(out);
-		res.end();
+			/*
+			 * Deliver response to client:
+			 */
+			res.contentType = 'text/html';
+			res.contentLength = out.length;
 
-		next();
-		return;
+			res.writeHead(200);
+			res.write(out);
+			res.end();
+
+			next();
+			return;
+		});
 	});
 }
 
@@ -422,27 +433,26 @@ handle_issue(req, res, next)
  */
 
 /*
- * Access to issues is normally restricted to those with the correct label.
- * In the case of issue _links_, we do not have the labels for the
- * referenced issue.  If "link_whitelist" is specified in the
- * configuration, links to projects listed in that whitelist will be
- * rendered as a list.  If no whitelist is provided, or the linked issue
- * is not from a project in the whitelist, the link will not be displayed.
+ * Access to issues is restricted to those with the correct label.  This
+ * includes related issues, each of which must be checked for the "public"
+ * label before display.
  */
 function
-allow_issue(key)
+allow_issue(key, other_issues)
 {
+	mod_assert.string(key, 'key');
+	mod_assert.object(other_issues, 'other_issues');
+
 	var m = key.match(/^([A-Z]+)-([0-9]+)/);
-
-	if (!CONFIG.link_whitelist) {
-		return (false);
-	}
-
 	if (!m) {
 		return (false);
 	}
 
-	if (CONFIG.link_whitelist.indexOf(m[1]) === -1) {
+	if (!other_issues[key]) {
+		return (false);
+	}
+
+	if (other_issues[key].fields.labels.indexOf(CONFIG.label) === -1) {
 		return (false);
 	}
 
@@ -857,10 +867,96 @@ format_issue_title(issue)
 }
 
 function
-format_issue(issue)
+format_issue(opts, callback)
 {
-	var i;
+	mod_assert.object(opts, 'opts');
+	mod_assert.object(opts.issue, 'opts.issue');
+	mod_assert.object(opts.log, 'opts.log');
+	mod_assert.func(callback, 'callback');
 
+	var issue = opts.issue;
+	var log = opts.log;
+
+	/*
+	 * First, we perform a few additional requests to fill out more
+	 * information about linked issues.  In particular, we want to know
+	 * if they have been marked "public" or not.
+	 */
+	var other_issues = {};
+	mod_vasync.waterfall([ function lookup_linked_issues(next) {
+		if (!issue.fields.issuelinks) {
+			setImmediate(next);
+			return;
+		}
+
+		/*
+		 * Assemble a list of all of the unique issues we need to
+		 * fetch.  There may be multiple links that refer to the same
+		 * issue; e.g., this issue might be both "related to" and
+		 * "duplicate of" the same other issue.
+		 */
+		issue.fields.issuelinks.forEach(function (l) {
+			if (l.outwardIssue) {
+				other_issues[l.outwardIssue.key] = null;
+			}
+
+			if (l.inwardIssue) {
+				other_issues[l.inwardIssue.key] = null;
+			}
+		});
+
+		mod_vasync.forEachParallel({ inputs: Object.keys(other_issues),
+		    func: function lookup_linked_issue_one(key, done) {
+			var url = CONFIG.url.path + '/issue/' + key;
+
+			JIRA.get(url, function (_err, _req, _res, other) {
+				if (_err) {
+					/*
+					 * In this particular case, we ignore
+					 * the failure to retrieve a related
+					 * issue from JIRA.  It's almost
+					 * certainly better to be able to
+					 * give information about the bug
+					 * itself, even if we cannot fetch
+					 * all of the Related Issues.
+					 */
+					log.warn(_err, 'could not fetch ' +
+					    'related issue ' + key);
+					done();
+					return;
+				}
+
+				/*
+				 * Include only issues marked "public".
+				 */
+				if (other.fields.labels.indexOf(
+				    CONFIG.label) !== -1) {
+					other_issues[key] = other;
+				} else {
+					log.debug('%s relates to issue %s, ' +
+					    'which is not marked public',
+					    issue.key, key);
+				}
+
+				done();
+			});
+		} }, function (err) {
+			next(err);
+		});
+
+	}, function do_format(next) {
+		next(null, format_issue_finalise(issue, other_issues));
+
+	} ], callback);
+}
+
+function
+format_issue_finalise(issue, other_issues)
+{
+	mod_assert.object(issue, 'issue');
+	mod_assert.object(other_issues, 'other_issues');
+
+	var i;
 	var out = '<h1>' + issue.key + ': ' + issue.fields.summary + '</h1>\n';
 
 	if (issue.fields.resolution) {
@@ -887,19 +983,28 @@ format_issue(issue)
 
 		for (i = 0; i < issue.fields.issuelinks.length; i++) {
 			var il = issue.fields.issuelinks[i];
+			var ild;
 
 			if (il.outwardIssue &&
-			    allow_issue(il.outwardIssue.key)) {
+			    allow_issue(il.outwardIssue.key, other_issues)) {
+				ild = other_issues[il.outwardIssue.key] ?
+				    ' ' + other_issues[il.outwardIssue.key].
+				    fields.summary : '';
 				links.push('<li>' + il.type.outward +
 				    ' <a href="' + il.outwardIssue.key + '">' +
-				    il.outwardIssue.key + '</a></li>');
+				    il.outwardIssue.key + '</a>' + ild +
+				    '</li>');
 			}
 
 			if (il.inwardIssue &&
-			    allow_issue(il.inwardIssue.key)) {
+			    allow_issue(il.inwardIssue.key, other_issues)) {
+				ild = other_issues[il.inwardIssue.key] ?
+				    ' ' + other_issues[il.inwardIssue.key].
+				    fields.summary : '';
 				links.push('<li>' + il.type.inward +
 				    ' <a href="' + il.inwardIssue.key + '">' +
-				    il.inwardIssue.key + '</a></li>');
+				    il.inwardIssue.key + '</a>' + ild +
+				    '</li>');
 			}
 		}
 

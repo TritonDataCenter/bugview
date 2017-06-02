@@ -23,6 +23,8 @@ var TEMPLATES = {};
 
 var CONFIG = read_config(LOG);
 
+var ALLOWED_DOMAINS = CONFIG.allowed_domains;
+
 var JIRA;
 var SERVER;
 
@@ -63,6 +65,8 @@ read_config(log)
 		}
 		mod_assert.string(c.url.base, 'config.url.base');
 		mod_assert.string(c.url.path, 'config.url.path');
+		mod_assert.arrayOfString(c.allowed_domains,
+		    'config.allowed_domains');
 	} catch (ex) {
 		log.error(ex, 'configuration validation failed');
 		process.exit(1);
@@ -874,6 +878,8 @@ format_issue(opts, callback)
 	mod_assert.object(opts.log, 'opts.log');
 	mod_assert.func(callback, 'callback');
 
+	var remotelinks;
+
 	var issue = opts.issue;
 	var log = opts.log;
 
@@ -944,17 +950,55 @@ format_issue(opts, callback)
 			next(err);
 		});
 
+	}, function get_remote_links(next) {
+		var url = CONFIG.url.path +
+		    '/issue/' + issue.id + '/remotelink';
+
+		/*
+		 * A ticket can have "remote links" attached to it, which are
+		 * URLs to resources outside of JIRA. We primarily use these to
+		 * link to code reviews, but they can also be to relevant bugs
+		 * on other sites, such as illumos.org.
+		 */
+		JIRA.get(url, function (_err, _req, _res, links) {
+			if (_err) {
+				next(_err);
+				return;
+			}
+
+			mod_assert.array(links, 'links');
+
+			/*
+			 * We filter out domains that haven't been explicitly
+			 * allowed, in case there are any tickets floating
+			 * around with links to signed Manta URLs.
+			 */
+			remotelinks = links.filter(function (rl) {
+				var parsed = mod_url.parse(rl.object.url);
+				var domain = parsed.hostname;
+
+				if (domain === null) {
+					return (false);
+				}
+
+				return (ALLOWED_DOMAINS.indexOf(domain) !== -1);
+			});
+
+			next(null);
+		});
 	}, function do_format(next) {
-		next(null, format_issue_finalise(issue, other_issues));
+		next(null,
+		    format_issue_finalise(issue, remotelinks, other_issues));
 
 	} ], callback);
 }
 
 function
-format_issue_finalise(issue, other_issues)
+format_issue_finalise(issue, remotelinks, other_issues)
 {
 	mod_assert.object(issue, 'issue');
 	mod_assert.object(other_issues, 'other_issues');
+	mod_assert.arrayOfObject(remotelinks, 'remotelinks');
 
 	var i;
 	var out = '<h1>' + issue.key + ': ' + issue.fields.summary + '</h1>\n';
@@ -1014,6 +1058,21 @@ format_issue_finalise(issue, other_issues)
 		}
 	}
 
+	if (remotelinks.length > 0) {
+		out += '<h2>Related Links</h2>\n';
+		out += '<p><ul>\n';
+
+		for (i = 0; i < remotelinks.length; i++) {
+			var rl = remotelinks[i].object;
+
+			out += '<li>';
+			out += format_remote_link(rl.url, rl.title);
+			out += '</li>\n';
+		}
+
+		out += '</ul></p>\n';
+	}
+
 	if (issue.fields.description) {
 		out += '<h2>Description</h2>\n';
 		out += '<div>';
@@ -1067,6 +1126,25 @@ format_issue_finalise(issue, other_issues)
 	}
 
 	return (out);
+}
+
+
+/*
+ * Create a new anchor tag, with several important traits:
+ *
+ * - Open in a new, blank context (target="_blank"). This is usually
+ *   a new tab in most browsers.
+ * - Prevent that new tab from getting referral information ("noreferrer")
+ *   about who opened it, and from controlling the bugview page via the
+ *   window.opener API ("noopener").
+ */
+function
+format_remote_link(link, text)
+{
+	var anchor = '<a rel="noopener noreferrer" target="_blank" href="' +
+	    link + '">' + text + '</a>';
+
+	return (anchor);
 }
 
 /*

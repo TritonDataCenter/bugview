@@ -7,10 +7,13 @@
   "license": "MIT",
   "private": true,
   "dependencies": {
-    "assert-plus": "^0.1.5",
+    "assert-plus": "^1.0.0",
     "bunyan": "~0.22.1",
     "ent": "~2.0.0",
     "restify": "~2.6.1",
     "vasync": "^1.6.4"
+  },
+  "devDependencies": {
+    "jshint": "^2.5.6"
   }
 }

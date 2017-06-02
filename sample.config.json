@@ -6,5 +6,11 @@
   "username": "some_readonly_user",
   "password": "an_awesome_password",
   "label": "public",
+  "allowed_domains": [
+    "cr.joyent.us",
+    "www.illumos.org",
+    "illumos.org",
+    "github.com"
+  ],
   "port": 9021
 }

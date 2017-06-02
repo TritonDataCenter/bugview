@@ -1,4 +1,6 @@
 
+JSHINT = ./node_modules/.bin/jshint
+
 JS_FILES = \
 	jirapub.js
 
@@ -6,8 +8,12 @@ JS_FILES = \
 all: 0-npm-stamp
 
 .PHONY: check
-check:
-	jshint $(JS_FILES)
+check: $(JSHINT)
+	$(JSHINT) $(JS_FILES)
+
+$(JSHINT):
+	npm install \
+	    jshint@`json -f package.json devDependencies.jshint`
 
 0-npm-stamp:
 	npm install

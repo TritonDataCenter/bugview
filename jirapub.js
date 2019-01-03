@@ -24,6 +24,7 @@ var TEMPLATES = {};
 var CONFIG = read_config(LOG);
 
 var ALLOWED_DOMAINS = CONFIG.allowed_domains;
+var ALLOWED_LABELS = CONFIG.allowed_labels;
 
 var JIRA;
 var SERVER;
@@ -67,6 +68,8 @@ read_config(log)
 		mod_assert.string(c.url.path, 'config.url.path');
 		mod_assert.arrayOfString(c.allowed_domains,
 		    'config.allowed_domains');
+		mod_assert.arrayOfString(c.allowed_labels,
+		    'config.allowed_labels');
 	} catch (ex) {
 		log.error(ex, 'configuration validation failed');
 		process.exit(1);
@@ -97,6 +100,7 @@ create_http_server(log, callback)
 		next(false);
 	});
 	s.get('/bugview/index.html', handle_issue_index);
+	s.get('/bugview/label/:key', handle_label_index);
 	s.get('/bugview/json/:key', handle_issue_json);
 	s.get('/bugview/:key', handle_issue);
 
@@ -159,7 +163,42 @@ handle_issue_index(req, res, next)
 		issue_index: true
 	});
 
+	make_issue_index(log, CONFIG.label, req, res, next);
+}
+
+
+function
+handle_label_index(req, res, next)
+{
+	var log = req.log.child({
+		remoteAddress: req.socket.remoteAddress,
+		remotePort: req.socket.remotePort,
+		userAgent: req.headers['user-agent'],
+		referrer: req.headers['referrer'],
+		forwardedFor: req.headers['x-forwarded-for'],
+		label: req.params.key
+	});
+	var label = req.params.key;
+
+	if (ALLOWED_LABELS.indexOf(label) === -1) {
+		log.error({label: label}, 'invalid label');
+		res.send(400);
+		next(false);
+		return;
+	}
+
+	make_issue_index(log, label, req, res, next);
+}
+
+
+function
+make_issue_index(log, label, req, res, next)
+{
 	var offset;
+	var url;
+
+	mod_assert(label === CONFIG.label || ALLOWED_LABELS.indexOf(label) !== -1);
+
 	if (req.query && req.query.offset) {
 		offset = parseInt(req.query.offset, 10);
 	}
@@ -168,9 +207,11 @@ handle_issue_index(req, res, next)
 	}
 	offset = Math.floor(offset / 50) * 50;
 
-	var url = CONFIG.url.path + '/search?jql=labels%20%3D%20%22' +
-	    CONFIG.label + '%22&fields=summary,resolution&startAt=' +
-	    offset;
+	url = CONFIG.url.path + '/search?jql=labels%20%3D%20%22' + label + '%22';
+	if (label !== CONFIG.label) {
+		url += '%20AND%20labels%20%3D%20%22' + CONFIG.label + '%22';
+	}
+	url += '&fields=summary,resolution&startAt=' + offset;
 
 	log.info({
 		url: url,
@@ -208,6 +249,14 @@ handle_issue_index(req, res, next)
 		 * Construct Issue Index table:
 		 */
 		var container = template('issue_index');
+		if (ALLOWED_LABELS.indexOf(label) === -1) {
+			container = container.replace(/%%LABEL%%/g, '');
+		} else {
+			container = container.replace(/%%LABEL%%/g, ': ' + label);
+		}
+		var labelindex = '<p><b>Filter by label:</b> ' +
+			ALLOWED_LABELS.map(make_label_link).join(' ') + '</p>\n';
+		container = container.replace(/%%LABEL_INDEX%%/, labelindex);
 		var tbody = '';
 		for (var i = 0; i < results.issues.length; i++) {
 			var issue = results.issues[i];
@@ -220,7 +269,7 @@ handle_issue_index(req, res, next)
 
 			tbody += [
 				'<tr><td>',
-				'<a href="' + issue.key + '">',
+				'<a href="/bugview/' + issue.key + '">',
 				issue.key,
 				'</a>',
 				'</td><td>',
@@ -1022,6 +1071,14 @@ format_issue_finalise(issue, remotelinks, other_issues)
 		}
 	}
 
+	var labellinks = issue.fields.labels.filter(
+		function is_label_allowed(label) {
+			return ALLOWED_LABELS.indexOf(label) !== -1;
+		}).map(make_label_link);
+	if (labellinks.length > 0) {
+		out += '<p><b>Labels: </b>' + labellinks.join(' ') + '</p>\n';
+	}
+
 	if (issue.fields.issuelinks) {
 		var links = [];
 
@@ -1145,6 +1202,16 @@ format_remote_link(link, text)
 	    link + '">' + text + '</a>';
 
 	return (anchor);
+}
+
+/*
+ * Any label that is passed is a whitelisted label and as such can be assumed to
+ * be safe. Famous last words.
+ */
+function
+make_label_link(label)
+{
+	return '<a href="/bugview/label/' + label + '">' + label + '</a>';
 }
 
 /*

@@ -12,5 +12,10 @@
     "illumos.org",
     "github.com"
   ],
+  "allowed_labels": [
+    "bhyve",
+    "lx"
+  ],
+  "http_proto": "http",
   "port": 9021
 }

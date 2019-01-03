@@ -860,6 +860,8 @@ format_markup(desc)
 		ps_list: false,
 		ps_heading: null
 	};
+	var procneeded = true;
+
 	for (var i = 0; i < lines.length; i++) {
 		var line = lines[i];
 		var lt_noformat = !!line.match(/^{noformat/);
@@ -868,6 +870,7 @@ format_markup(desc)
 		var lt_quote = !!line.match(/^{quote/);
 
 		if (lt_noformat || lt_code || lt_panel || lt_quote) {
+			procneeded = false;
 			if (parser_state.ps_list) {
 				parser_state.ps_list = false;
 				out += '</ul>\n';
@@ -875,12 +878,14 @@ format_markup(desc)
 			if (fmton) {
 				parse_markup = true;
 				out += (lt_quote ? '</div>' : '</pre>') + '\n';
+				line = '';
 			} else if (lt_quote) {
 				newline_br = true;
 				parse_markup = true;
 				out += '<div style="border-left: 2px solid ' +
 				    '#888888; margin-left: 1em; ' +
 				    'padding-left: 1em">\n';
+				line = line.match(/^{[^}]*}?(.*)/)[1];
 			} else {
 				newline_br = false;
 				parse_markup = !(lt_noformat || lt_code);
@@ -888,9 +893,11 @@ format_markup(desc)
 				    'font-family: Menlo, Courier, ' +
 				    'Lucida Console, Monospace;' +
 				    'background-color: #eeeeee;">\n';
+				line = line.match(/^{[^}]*}?(.*)/)[1];
 			}
 			fmton = !fmton;
-		} else {
+		}
+		if (procneeded || line !== '') {
 			if (parse_markup) {
 				out += parse_jira_markup(line, parser_state);
 			} else {
@@ -899,11 +906,11 @@ format_markup(desc)
 			if (fmton) {
 				out += newline_br ? '<br>\n' : '\n';
 			} else if (parser_state.ps_heading === null &&
-			    !last_was_heading) {
+				!last_was_heading) {
 				out += '<br>\n';
 			}
 		}
-
+		procneeded = true;
 		last_was_heading = (parser_state.ps_heading !== null);
 	}
 

@@ -181,8 +181,8 @@ handle_label_index(req, res, next)
 	var label = req.params.key;
 
 	if (ALLOWED_LABELS.indexOf(label) === -1) {
-		log.error({label: label}, 'invalid label');
-		res.send(400);
+		log.error({label: label}, 'request for non-public label');
+		res.send(403, 'Sorry, this label is not public.\n');
 		next(false);
 		return;
 	}
@@ -255,7 +255,9 @@ make_issue_index(log, label, req, res, next)
 			container = container.replace(/%%LABEL%%/g, ': ' + label);
 		}
 		var labelindex = '<p><b>Filter by label:</b> ' +
-			ALLOWED_LABELS.map(make_label_link).join(' ') + '</p>\n';
+			ALLOWED_LABELS.map(function make_link(_label) {
+					return make_label_link(_label, label === _label);
+				}).join(' ') + '</p>\n';
 		container = container.replace(/%%LABEL_INDEX%%/, labelindex);
 		var tbody = '';
 		for (var i = 0; i < results.issues.length; i++) {
@@ -1071,14 +1073,6 @@ format_issue_finalise(issue, remotelinks, other_issues)
 		}
 	}
 
-	var labellinks = issue.fields.labels.filter(
-		function is_label_allowed(label) {
-			return ALLOWED_LABELS.indexOf(label) !== -1;
-		}).map(make_label_link);
-	if (labellinks.length > 0) {
-		out += '<p><b>Labels: </b>' + labellinks.join(' ') + '</p>\n';
-	}
-
 	if (issue.fields.issuelinks) {
 		var links = [];
 
@@ -1128,6 +1122,16 @@ format_issue_finalise(issue, remotelinks, other_issues)
 		}
 
 		out += '</ul></p>\n';
+	}
+
+	var labellinks = issue.fields.labels.filter(
+		function is_label_allowed(label) {
+			return ALLOWED_LABELS.indexOf(label) !== -1;
+		}).map(function label_link(label) {
+			return make_label_link(label, false)
+		});
+	if (labellinks.length > 0) {
+		out += '<h2>Labels</h2>\n<p>' + labellinks.join(' ') + '</p>\n';
 	}
 
 	if (issue.fields.description) {
@@ -1209,8 +1213,11 @@ format_remote_link(link, text)
  * be safe. Famous last words.
  */
 function
-make_label_link(label)
+make_label_link(label, bold)
 {
+	if (bold) {
+		label = '<b>' + label + '</b>';
+	}
 	return '<a href="/bugview/label/' + label + '">' + label + '</a>';
 }
 

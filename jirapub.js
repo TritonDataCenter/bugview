@@ -656,14 +656,27 @@ parse_jira_markup(desc, ps)
 				leading_spaces++;
 				continue;
 			} else if ((c === '*' || c === '-') && cc === ' ') {
-				if (!ps.ps_list) {
+				if (ps.ps_list) {
+					out.push('</li>');
+				} else {
 					out.push('<ul>');
 				}
-				ps.ps_list = true;
+				ps.ps_list = 'ul';
+				commit_text();
+				out.push('<li>');
+				continue;
+			} else if (c === '#' && cc === ' ') {
+				if (ps.ps_list) {
+					out.push('</li>');
+				} else {
+					out.push('<ol>');
+				}
+				ps.ps_list = 'ol';
 				commit_text();
 				out.push('<li>');
 				continue;
 			}
+
 
 			/*
 			 * No special sequence was detected, so emit the
@@ -679,8 +692,8 @@ parse_jira_markup(desc, ps)
 		case 'TEXT':
 			if (ps.ps_list && i === 0 && c !== ' ') {
 				commit_text();
-				ps.ps_list = false;
-				out.push('</ul>');
+				out.push('</li></' + ps.ps_list + '>');
+				ps.ps_list = null;
 
 				/*
 				 * Note that we must break out here, so that

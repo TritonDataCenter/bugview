@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /* vim: set ts=8 sts=8 sw=8 noet: */
 
+'use strict';
+
 var mod_assert = require('assert-plus');
 var mod_restify = require('restify');
 var mod_bunyan = require('bunyan');
@@ -27,7 +29,7 @@ var ALLOWED_DOMAINS = CONFIG.allowed_domains;
 var ALLOWED_LABELS = CONFIG.allowed_labels;
 
 var JIRA;
-var SERVER;
+var SERVER; // eslint-disable-line
 
 /*
  * Initialisation Routines:
@@ -104,7 +106,7 @@ create_http_server(log, callback)
 	s.get('/bugview/json/:key', handle_issue_json);
 	s.get('/bugview/:key', handle_issue);
 
-	s.on('uncaughtException', function (req, res, route, err) {
+	s.on('uncaughtException', function (req, res, _route, err) {
 		req.log.error(err, 'uncaught exception!');
 	});
 
@@ -197,7 +199,8 @@ make_issue_index(log, label, req, res, next)
 	var offset;
 	var url;
 
-	mod_assert(label === CONFIG.label || ALLOWED_LABELS.indexOf(label) !== -1);
+	mod_assert.ok(label === CONFIG.label ||
+	    ALLOWED_LABELS.indexOf(label) !== -1);
 
 	if (req.query && req.query.offset) {
 		offset = parseInt(req.query.offset, 10);
@@ -207,7 +210,8 @@ make_issue_index(log, label, req, res, next)
 	}
 	offset = Math.floor(offset / 50) * 50;
 
-	url = CONFIG.url.path + '/search?jql=labels%20%3D%20%22' + label + '%22';
+	url = CONFIG.url.path +
+	    '/search?jql=labels%20%3D%20%22' + label + '%22';
 	if (label !== CONFIG.label) {
 		url += '%20AND%20labels%20%3D%20%22' + CONFIG.label + '%22';
 	}
@@ -252,11 +256,12 @@ make_issue_index(log, label, req, res, next)
 		if (ALLOWED_LABELS.indexOf(label) === -1) {
 			container = container.replace(/%%LABEL%%/g, '');
 		} else {
-			container = container.replace(/%%LABEL%%/g, ': ' + label);
+			container = container.replace(/%%LABEL%%/g,
+			    ': ' + label);
 		}
 		var labelindex = ALLOWED_LABELS.map(function make_link(_label) {
-				return make_label_link(_label, label === _label);
-			}).join(', ');
+			return make_label_link(_label, label === _label);
+		}).join(', ');
 		container = container.replace(/%%LABEL_INDEX%%/, labelindex);
 		var tbody = '';
 		for (var i = 0; i < results.issues.length; i++) {
@@ -277,7 +282,7 @@ make_issue_index(log, label, req, res, next)
 				resolution,
 				'</td><td>',
 				issue.fields.summary,
-				'</td></tr>',
+				'</td></tr>'
 			].join('') + '\n';
 		}
 		container = container.replace(/%%TABLE_BODY%%/g, tbody);
@@ -395,7 +400,6 @@ handle_issue_json(req, res, next)
 		next();
 		return;
 	});
-
 }
 
 function
@@ -606,8 +610,9 @@ repeat_char(c, n)
 {
 	var out = '';
 
-	while (out.length < n)
+	while (out.length < n) {
 		out += c;
+	}
 
 	return (out);
 }
@@ -629,12 +634,12 @@ parse_jira_markup(desc, ps)
 
 	ps.ps_heading = null;
 
-	var commit_text = function () {
+	function commit_text() {
 		if (text !== '') {
 			out.push(mod_ent.encode(text));
 			text = '';
 		}
-	};
+	}
 
 	for (var i = 0; i < desc.length; i++) {
 		var c = desc[i];
@@ -761,6 +766,9 @@ parse_jira_markup(desc, ps)
 				link_url += c;
 			}
 			continue;
+		default:
+			throw new Error(
+			    'unknown state: ' + JSON.stringify(state));
 		}
 
 		if (c === '*' && formats[0] !== 'CODE') {
@@ -999,7 +1007,6 @@ format_issue(opts, callback)
 		} }, function (err) {
 			next(err);
 		});
-
 	}, function get_remote_links(next) {
 		var url = CONFIG.url.path +
 		    '/issue/' + issue.id + '/remotelink';
@@ -1039,7 +1046,6 @@ format_issue(opts, callback)
 	}, function do_format(next) {
 		next(null,
 		    format_issue_finalise(issue, remotelinks, other_issues));
-
 	} ], callback);
 }
 
@@ -1082,8 +1088,8 @@ format_issue_finalise(issue, remotelinks, other_issues)
 			if (il.outwardIssue &&
 			    allow_issue(il.outwardIssue.key, other_issues)) {
 				ild = other_issues[il.outwardIssue.key] ?
-				    ' ' + other_issues[il.outwardIssue.key].
-				    fields.summary : '';
+				    ' ' + other_issues[il.outwardIssue.key]
+				    .fields.summary : '';
 				links.push('<li>' + il.type.outward +
 				    ' <a href="' + il.outwardIssue.key + '">' +
 				    il.outwardIssue.key + '</a>' + ild +
@@ -1093,8 +1099,8 @@ format_issue_finalise(issue, remotelinks, other_issues)
 			if (il.inwardIssue &&
 			    allow_issue(il.inwardIssue.key, other_issues)) {
 				ild = other_issues[il.inwardIssue.key] ?
-				    ' ' + other_issues[il.inwardIssue.key].
-				    fields.summary : '';
+				    ' ' + other_issues[il.inwardIssue.key]
+				    .fields.summary : '';
 				links.push('<li>' + il.type.inward +
 				    ' <a href="' + il.inwardIssue.key + '">' +
 				    il.inwardIssue.key + '</a>' + ild +
@@ -1130,7 +1136,8 @@ format_issue_finalise(issue, remotelinks, other_issues)
 			return make_label_link(label, false);
 		});
 	if (labellinks.length > 0) {
-		out += '<h2>Labels</h2>\n<p>' + labellinks.join(', ') + '</p>\n';
+		out += '<h2>Labels</h2>\n';
+		out += '<p>' + labellinks.join(', ') + '</p>\n';
 	}
 
 	if (issue.fields.description) {
@@ -1170,8 +1177,10 @@ format_issue_finalise(issue, remotelinks, other_issues)
 			out += '<div style="background-color: ' +
 			    (dark ? '#DDDDDD' : '#EEEEEE') + ';">\n';
 			out += '<b>';
-			out += 'Comment by ' + com.author.displayName + '<br>\n';
-			out += 'Created at ' + cdtc.toISOString() + '<br>\n';
+			out += 'Comment by ' + com.author.displayName;
+			out += '<br>\n';
+			out += 'Created at ' + cdtc.toISOString();
+			out += '<br>\n';
 			if (com.updated && com.updated !== com.created) {
 				out += 'Updated at ' +
 				    new Date(com.updated).toISOString() +

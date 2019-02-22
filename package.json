@@ -14,6 +14,7 @@
     "vasync": "^1.6.4"
   },
   "devDependencies": {
-    "jshint": "^2.5.6"
+    "eslint": "4.13.1",
+    "eslint-plugin-joyent": "~2.1.0"
   }
 }

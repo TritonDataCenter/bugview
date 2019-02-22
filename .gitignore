@@ -1,4 +1,7 @@
-config.json
-node_modules/
 0-*-stamp
-.*.swp
+*.s[a-w][a-z]
+*.tgz
+config.json
+/build
+/coverage
+/node_modules

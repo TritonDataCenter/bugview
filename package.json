@@ -11,7 +11,8 @@
     "bunyan": "~0.22.1",
     "ent": "~2.0.0",
     "restify": "~2.6.1",
-    "vasync": "^1.6.4"
+    "vasync": "^2.2.0",
+    "verror": "^1.10.0"
   },
   "devDependencies": {
     "eslint": "4.13.1",

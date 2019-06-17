@@ -11,6 +11,12 @@ var mod_path = require('path');
 var mod_ent = require('ent');
 var mod_url = require('url');
 var mod_vasync = require('vasync');
+var mod_verror = require('verror');
+
+var lib_backend_jira = require('./lib/backend_jira');
+var lib_backend_files = require('./lib/backend_files');
+
+var VE = mod_verror.VError;
 
 var LOG = mod_bunyan.createLogger({
 	name: 'jirapub',
@@ -23,12 +29,13 @@ var HEADING_LEVELS = [ 1, 2, 3, 4, 5, 6 ].map(function (l) {
 
 var TEMPLATES = {};
 
+var UNRESTRICTED = false;
 var CONFIG = read_config(LOG);
 
 var ALLOWED_DOMAINS = CONFIG.allowed_domains;
 var ALLOWED_LABELS = CONFIG.allowed_labels;
 
-var JIRA;
+var BACKEND;
 var SERVER; // eslint-disable-line
 
 /*
@@ -165,7 +172,8 @@ handle_issue_index(req, res, next)
 		issue_index: true
 	});
 
-	make_issue_index(log, CONFIG.label, req, res, next);
+	make_issue_index(log, UNRESTRICTED ? null : CONFIG.label, req, res,
+	    next);
 }
 
 
@@ -182,7 +190,7 @@ handle_label_index(req, res, next)
 	});
 	var label = req.params.key;
 
-	if (ALLOWED_LABELS.indexOf(label) === -1) {
+	if (!UNRESTRICTED && ALLOWED_LABELS.indexOf(label) === -1) {
 		log.error({label: label}, 'request for non-public label');
 		res.send(403, 'Sorry, this label does not exist.\n');
 		next(false);
@@ -197,10 +205,10 @@ function
 make_issue_index(log, label, req, res, next)
 {
 	var offset;
-	var url;
 
 	mod_assert.ok(label === CONFIG.label ||
-	    ALLOWED_LABELS.indexOf(label) !== -1);
+	    ALLOWED_LABELS.indexOf(label) !== -1 ||
+	    UNRESTRICTED);
 
 	if (req.query && req.query.offset) {
 		offset = parseInt(req.query.offset, 10);
@@ -210,20 +218,22 @@ make_issue_index(log, label, req, res, next)
 	}
 	offset = Math.floor(offset / 50) * 50;
 
-	url = CONFIG.url.path +
-	    '/search?jql=labels%20%3D%20%22' + label + '%22';
-	if (label !== CONFIG.label) {
-		url += '%20AND%20labels%20%3D%20%22' + CONFIG.label + '%22';
+	var labels = [];
+	if (!UNRESTRICTED) {
+		labels.push(CONFIG.label);
 	}
-	url += '&fields=summary,resolution&startAt=' + offset;
+	if (label !== null && labels.indexOf(label) === -1) {
+		labels.push(label);
+	}
 
 	log.info({
-		url: url,
+		labels: labels,
 		offset: offset
-	}, 'fetch from JIRA');
-	JIRA.get(url, function (_err, _req, _res, results) {
-		if (_err) {
-			log.error(_err, 'error communicating with JIRA');
+	}, 'fetch from %s', BACKEND.be_name);
+
+	BACKEND.be_issue_list(labels, offset, function (err, results) {
+		if (err) {
+			log.error(err, 'error communicating with JIRA');
 			res.send(500);
 			next(false);
 			return;
@@ -349,37 +359,31 @@ handle_issue_json(req, res, next)
 		return;
 	}
 
-	var url = CONFIG.url.path + '/issue/' + req.params.key;
-
-	JIRA.get(url, function (_err, _req, _res, issue) {
-		if (_err) {
-			if (_err && _err.name === 'NotFoundError') {
-				log.error(_err, 'could not find issue');
+	BACKEND.be_issue_get(req.params.key, function (err, issue) {
+		if (err) {
+			if (VE.info(err).notfound) {
+				log.error(err, 'could not find issue');
 				res.send(404);
 				next(false);
 				return;
 			}
-			log.error(_err, 'error communicating with JIRA');
+			log.error(err, 'error communicating with JIRA');
 			res.send(500);
 			next(false);
 			return;
 		}
 
-		if (!issue || !issue || !issue.fields || !issue.fields.labels) {
-			log.error('JIRA issue did not have expected format');
-			res.send(500);
-			next(false);
-			return;
-		}
+		mod_assert.arrayOfStrings(issue.fields.labels, 'labels');
 
-		if (issue.fields.labels.indexOf(CONFIG.label) === -1) {
+		if (!UNRESTRICTED &&
+		    issue.fields.labels.indexOf(CONFIG.label) === -1) {
 			log.error('request for non-public issue');
 			res.send(403);
 			next(false);
 			return;
 		}
 
-		log.info('serving issue');
+		log.info({ issue_id: issue.id }, 'serving issue');
 
 		/*
 		 * Construct our page from the primary template with the
@@ -421,47 +425,41 @@ handle_issue(req, res, next)
 		return;
 	}
 
-	var url = CONFIG.url.path + '/issue/' + req.params.key;
-
-	JIRA.get(url, function (_err, _req, _res, issue) {
-		if (_err) {
-			if (_err && _err.name === 'NotFoundError') {
-				log.error(_err, 'could not find issue');
+	BACKEND.be_issue_get(req.params.key, function (err, issue) {
+		if (err) {
+			if (VE.info(err).notfound) {
+				log.error(err, 'could not find issue');
 				res.send(404,
 				    'Sorry, that issue does not exist.\n');
 				next(false);
 				return;
 			}
-			log.error(_err, 'error communicating with JIRA');
+			log.error(err, 'error communicating with JIRA');
 			res.send(500);
 			next(false);
 			return;
 		}
 
-		if (!issue || !issue || !issue.fields || !issue.fields.labels) {
-			log.error('JIRA issue did not have expected format');
-			res.send(500);
-			next(false);
-			return;
-		}
+		mod_assert.arrayOfString(issue.fields.labels, 'labels');
 
-		if (issue.fields.labels.indexOf(CONFIG.label) === -1) {
+		if (!UNRESTRICTED &&
+		    issue.fields.labels.indexOf(CONFIG.label) === -1) {
 			log.error('request for non-public issue');
 			res.send(403, 'Sorry, this issue is not public.\n');
 			next(false);
 			return;
 		}
 
-		log.info('serving issue');
+		log.info({ issue_id: issue.id }, 'serving issue');
 
 		/*
 		 * Construct our page from the primary template with the
 		 * formatted issue in the container:
 		 */
 		format_issue({ issue: issue, log: log },
-		    function (err, formatted) {
-			if (err) {
-				log.error(err, 'format issue failed');
+		    function (_err, formatted) {
+			if (_err) {
+				log.error(_err, 'format issue failed');
 				res.send(500);
 				next(false);
 				return;
@@ -510,7 +508,8 @@ allow_issue(key, other_issues)
 		return (false);
 	}
 
-	if (other_issues[key].fields.labels.indexOf(CONFIG.label) === -1) {
+	if (!UNRESTRICTED &&
+	    other_issues[key].fields.labels.indexOf(CONFIG.label) === -1) {
 		return (false);
 	}
 
@@ -991,10 +990,8 @@ format_issue(opts, callback)
 
 		mod_vasync.forEachParallel({ inputs: Object.keys(other_issues),
 		    func: function lookup_linked_issue_one(key, done) {
-			var url = CONFIG.url.path + '/issue/' + key;
-
-			JIRA.get(url, function (_err, _req, _res, other) {
-				if (_err) {
+			BACKEND.be_issue_get(key, function (err, other) {
+				if (err) {
 					/*
 					 * In this particular case, we ignore
 					 * the failure to retrieve a related
@@ -1004,7 +1001,7 @@ format_issue(opts, callback)
 					 * itself, even if we cannot fetch
 					 * all of the Related Issues.
 					 */
-					log.warn(_err, 'could not fetch ' +
+					log.warn(err, 'could not fetch ' +
 					    'related issue ' + key);
 					done();
 					return;
@@ -1013,7 +1010,8 @@ format_issue(opts, callback)
 				/*
 				 * Include only issues marked "public".
 				 */
-				if (other.fields.labels.indexOf(
+				if (UNRESTRICTED ||
+				    other.fields.labels.indexOf(
 				    CONFIG.label) !== -1) {
 					other_issues[key] = other;
 				} else {
@@ -1028,18 +1026,15 @@ format_issue(opts, callback)
 			next(err);
 		});
 	}, function get_remote_links(next) {
-		var url = CONFIG.url.path +
-		    '/issue/' + issue.id + '/remotelink';
-
 		/*
 		 * A ticket can have "remote links" attached to it, which are
 		 * URLs to resources outside of JIRA. We primarily use these to
 		 * link to code reviews, but they can also be to relevant bugs
 		 * on other sites, such as illumos.org.
 		 */
-		JIRA.get(url, function (_err, _req, _res, links) {
-			if (_err) {
-				next(_err);
+		BACKEND.be_remotelink_get(issue.id, function (err, links) {
+			if (err) {
+				next(err);
 				return;
 			}
 
@@ -1257,19 +1252,20 @@ function
 main() {
 	read_templates(LOG);
 
+	if (process.env.UNRESTRICTED === 'yes') {
+		LOG.warn('unrestricted operation enabled');
+		UNRESTRICTED = true;
+	}
+
+	if (process.env.LOCAL_STORE) {
+		BACKEND = lib_backend_files.files_backend_init(CONFIG, LOG);
+	} else {
+		BACKEND = lib_backend_jira.jira_backend_init(CONFIG, LOG);
+	}
+
 	create_http_server(LOG, function (s) {
 		SERVER = s;
 	});
-
-	JIRA = mod_restify.createJsonClient({
-		url: CONFIG.url.base,
-		connectTimeout: 15000,
-		userAgent: 'JoyentJIRAPublicAccess',
-		log: LOG.child({
-			component: 'jira'
-		})
-	});
-	JIRA.basicAuth(CONFIG.username, CONFIG.password);
 }
 
 main();

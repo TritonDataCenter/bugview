@@ -47,10 +47,10 @@ endif
 all: 0-npm-stamp | $(NPM_EXEC)
 
 0-npm-stamp:
-	npm install
+	$(NPM) install
 	touch $@
 
-CLEAN_FILES += ./node_modules/
+CLEAN_FILES += ./node_modules/ 0-npm-stamp
 
 include ./tools/mk/Makefile.deps
 ifeq ($(shell uname -s),SunOS)

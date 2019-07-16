@@ -408,7 +408,7 @@ handle_issue_json(req, res, next)
 			return;
 		}
 
-		mod_assert.arrayOfStrings(issue.fields.labels, 'labels');
+		mod_assert.arrayOfString(issue.fields.labels, 'labels');
 
 		if (!UNRESTRICTED &&
 		    issue.fields.labels.indexOf(CONFIG.label) === -1) {

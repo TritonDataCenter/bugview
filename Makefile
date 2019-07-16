@@ -44,7 +44,7 @@ endif
 #
 
 .PHONY: all
-all: 0-npm-stamp | $(NPM_EXEC)
+all: | $(NPM_EXEC) 0-npm-stamp
 
 0-npm-stamp:
 	$(NPM) install

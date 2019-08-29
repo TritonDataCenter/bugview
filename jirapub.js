@@ -571,6 +571,11 @@ fix_url(input)
 			},
 			{
 				h: 'github.com',
+				m: '/illumos-live',
+				p: '/joyent/smartos-live'
+			},
+			{
+				h: 'github.com',
 				m: '/illumos-extra',
 				p: '/joyent/illumos-extra'
 			},

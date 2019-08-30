@@ -28,6 +28,33 @@ var HEADING_LEVELS = [ 1, 2, 3, 4, 5, 6 ].map(function (l) {
 	return ('' + l);
 });
 
+/*
+ * JIRA issues contain a number of properties that are object-valued.  When
+ * copying these into the sanitised view, we only preserve the subset of keys
+ * that are meaningful and safe to expose.
+ */
+var ISSUE_OBJECT_KEYS = [
+	'id',
+	'name',
+	'description',
+	'key',
+	'emailAddress',
+	'displayName'
+];
+
+/*
+ * Issues can also contain a list of software release versions.  The list of
+ * meaningful properties is slightly different to the more generic object
+ * values mentioned above.
+ */
+var RELEASE_OBJECT_KEYS = [
+	'id',
+	'name',
+	'archived',
+	'released',
+	'releaseDate'
+];
+
 var TEMPLATES = {};
 var TEMPLATE_RE = /%%([^%]*)%%/g;
 
@@ -114,10 +141,12 @@ create_http_server(log, callback)
 		res.send(302);
 		next(false);
 	});
-	s.get('/bugview/index.html', handle_issue_index);
-	s.get('/bugview/label/:key', handle_label_index);
+	s.get('/bugview/index.html', handle_issue_index.bind(null, 'html'));
+	s.get('/bugview/index.json', handle_issue_index.bind(null, 'json'));
+	s.get('/bugview/label/:key', handle_label_index.bind(null, 'html'));
 	s.get('/bugview/json/:key', handle_issue_json);
-	s.get('/bugview/:key', handle_issue);
+	s.get('/bugview/fulljson/:key', handle_issue.bind(null, 'json'));
+	s.get('/bugview/:key', handle_issue.bind(null, 'html'));
 
 	s.on('uncaughtException', function (req, res, _route, err) {
 		req.log.error(err, 'uncaught exception!');
@@ -199,7 +228,7 @@ is_allowed_label(label)
 
 
 function
-handle_issue_index(req, res, next)
+handle_issue_index(format, req, res, next)
 {
 	var log = req.log.child({
 		remoteAddress: req.socket.remoteAddress,
@@ -210,13 +239,13 @@ handle_issue_index(req, res, next)
 		issue_index: true
 	});
 
-	make_issue_index(log, UNRESTRICTED ? null : CONFIG.label, req, res,
-	    next);
+	make_issue_index(log, format, UNRESTRICTED ? null : CONFIG.label, req,
+	    res, next);
 }
 
 
 function
-handle_label_index(req, res, next)
+handle_label_index(format, req, res, next)
 {
 	var log = req.log.child({
 		remoteAddress: req.socket.remoteAddress,
@@ -235,12 +264,12 @@ handle_label_index(req, res, next)
 		return;
 	}
 
-	make_issue_index(log, label, req, res, next);
+	make_issue_index(log, format, label, req, res, next);
 }
 
 
 function
-make_issue_index(log, label, req, res, next)
+make_issue_index(log, format, label, req, res, next)
 {
 	var offset;
 
@@ -256,6 +285,12 @@ make_issue_index(log, label, req, res, next)
 	}
 	offset = Math.floor(offset / 50) * 50;
 
+	var valid_sorts = [ 'key', 'created', 'updated' ];
+	var sort = 'key';
+	if (req.query.sort && valid_sorts.indexOf(req.query.sort) !== -1) {
+		sort = req.query.sort;
+	}
+
 	var labels = [];
 	if (!UNRESTRICTED) {
 		labels.push(CONFIG.label);
@@ -269,7 +304,7 @@ make_issue_index(log, label, req, res, next)
 		offset: offset
 	}, 'fetch from %s', BACKEND.be_name);
 
-	BACKEND.be_issue_list(labels, offset, function (err, results) {
+	BACKEND.be_issue_list(labels, offset, sort, function (err, results) {
 		if (err) {
 			log.error(err, 'error communicating with JIRA');
 			res.send(500);
@@ -278,8 +313,10 @@ make_issue_index(log, label, req, res, next)
 		}
 
 		var total = Number(results.total) || 10000000;
+		var out;
+		var i;
 
-		if (offset > total) {
+		if (offset > total && format === 'html') {
 			var x = Math.max(total - 50, 0);
 			log.info({
 				offset: offset,
@@ -294,8 +331,47 @@ make_issue_index(log, label, req, res, next)
 
 		log.info({
 			offset: offset,
-			total: total
+			total: total,
+			format: format
 		}, 'serving issue index');
+
+		if (format !== 'html') {
+			var resout = {
+				offset: offset,
+				total: total,
+				sort: sort,
+				issues: []
+			};
+
+			for (i = 0; i < results.issues.length; i++) {
+				var ri = results.issues[i];
+
+				resout.issues.push({
+					id: ri.id,
+					key: ri.key,
+					synopsis: ri.fields.summary,
+					resolution: ri.fields.resolution ?
+					    ri.fields.resolution.name : null,
+					updated: ri.fields.updated,
+					created: ri.fields.created
+				});
+			}
+
+			out = JSON.stringify(resout, null, 4);
+
+			/*
+			 * Deliver response to client:
+			 */
+			res.contentType = 'application/json';
+			res.contentLength = out.length;
+
+			res.writeHead(200);
+			res.write(out);
+			res.end();
+
+			next();
+			return;
+		}
 
 		/*
 		 * Construct Issue Index table:
@@ -305,7 +381,7 @@ make_issue_index(log, label, req, res, next)
 			return make_label_link(_label, label === _label);
 		}).join(', ');
 		var tbody = '';
-		for (var i = 0; i < results.issues.length; i++) {
+		for (i = 0; i < results.issues.length; i++) {
 			var issue = results.issues[i];
 			var resolution = '&nbsp';
 
@@ -331,11 +407,12 @@ make_issue_index(log, label, req, res, next)
 		 * Construct paginated navigation links:
 		 */
 		var pagin = [];
-		pagin.push('<a href="index.html?offset=0">First Page</a>');
+		pagin.push('<a href="index.html?offset=0&sort=' + sort +
+		    '">First Page</a>');
 		if (offset > 0) {
-			var prev = Math.max(offset - 50, 0);
 			pagin.push('<a href="index.html?offset=' +
-			    prev + '">Previous Page</a>');
+			    Math.max(offset - 50, 0) + '&sort=' + sort +
+			    '">Previous Page</a>');
 		}
 		if (total) {
 			var count = Math.min(50, total - offset);
@@ -343,8 +420,9 @@ make_issue_index(log, label, req, res, next)
 			    (count + offset) + ' of ' + total);
 		}
 		if ((offset + 50) <= total) {
+			var nextp = (offset + 50) + '';
 			pagin.push('<a href="index.html?offset=' +
-			    (offset + 50) + '">Next Page</a>');
+			    nextp + '&sort=' + sort + '">Next Page</a>');
 		}
 
 		var container = format_template('issue_index', {
@@ -357,8 +435,7 @@ make_issue_index(log, label, req, res, next)
 		/*
 		 * Construct page from primary template and our table:
 		 */
-		var out = format_primary('SmartOS Public Issues Index',
-		    container);
+		out = format_primary('SmartOS Public Issues Index', container);
 
 		/*
 		 * Deliver response to client:
@@ -442,7 +519,7 @@ handle_issue_json(req, res, next)
 }
 
 function
-handle_issue(req, res, next)
+handle_issue(format, req, res, next)
 {
 	var log = req.log.child({
 		remoteAddress: req.socket.remoteAddress,
@@ -491,7 +568,7 @@ handle_issue(req, res, next)
 		 * Construct our page from the primary template with the
 		 * formatted issue in the container:
 		 */
-		format_issue({ issue: issue, log: log },
+		format_issue({ format: format, issue: issue, log: log },
 		    function (_err, formatted) {
 			if (_err) {
 				log.error(_err, 'format issue failed');
@@ -500,13 +577,18 @@ handle_issue(req, res, next)
 				return;
 			}
 
-			var out = format_primary(format_issue_title(issue),
-			    formatted);
-
 			/*
 			 * Deliver response to client:
 			 */
-			res.contentType = 'text/html';
+			var out;
+			if (format === 'html') {
+				out = format_primary(format_issue_title(issue),
+				    formatted);
+				res.contentType = 'text/html';
+			} else {
+				out = formatted;
+				res.contentType = 'application/json';
+			}
 			res.contentLength = out.length;
 
 			res.writeHead(200);
@@ -1060,6 +1142,7 @@ function
 format_issue(opts, callback)
 {
 	mod_assert.object(opts, 'opts');
+	mod_assert.string(opts.format, 'opts.format');
 	mod_assert.object(opts.issue, 'opts.issue');
 	mod_assert.object(opts.log, 'opts.log');
 	mod_assert.func(callback, 'callback');
@@ -1168,8 +1251,15 @@ format_issue(opts, callback)
 			next(null);
 		});
 	}, function do_format(next) {
-		next(null,
-		    format_issue_finalise(issue, remotelinks, other_issues));
+		var fi = format_issue_assemble(issue, remotelinks,
+		    other_issues);
+
+		if (opts.format !== 'html') {
+			next(null, JSON.stringify(fi, null, 4));
+			return;
+		}
+
+		next(null, format_issue_finalise(fi.issue, fi.remotelinks));
 	} ], callback);
 }
 
@@ -1232,11 +1322,202 @@ extract_people_field(issue, type, label, rows)
 	rows.push({ name: label + ':', value: val });
 }
 
+/*
+ * Assemble an object which contains only the sanitised public data used to
+ * produce either the rendered HTML or JSON API view of the issue.
+ */
 function
-format_issue_finalise(issue, remotelinks, other_issues)
+format_issue_assemble(issue, remotelinks, other_issues)
 {
 	mod_assert.object(issue, 'issue');
 	mod_assert.object(other_issues, 'other_issues');
+	mod_assert.arrayOfObject(remotelinks, 'remotelinks');
+
+	var out = {
+		id: issue.id,
+		key: issue.key,
+		fields: {
+			summary: issue.fields.summary
+		}
+	};
+
+	function copy_obj(fname) {
+		if (!issue.fields[fname]) {
+			return;
+		}
+
+		var t = {};
+		ISSUE_OBJECT_KEYS.forEach(function (k) {
+			if (issue.fields[fname][k]) {
+				t[k] = issue.fields[fname][k];
+			}
+		});
+
+		out.fields[fname] = t;
+	}
+
+	function copy_simple(fname) {
+		if (issue.fields[fname]) {
+			out.fields[fname] = issue.fields[fname];
+		}
+	}
+
+	copy_obj('issuetype');
+	copy_obj('priority');
+	copy_obj('status');
+
+	copy_simple('created');
+	copy_simple('updated');
+
+	copy_obj('creator');
+	copy_obj('reporter');
+	copy_obj('assignee');
+
+	copy_obj('resolution');
+	copy_simple('resolutiondate');
+
+	if (issue.fields.fixVersions) {
+		out.fields.fixVersions = issue.fields.fixVersions.map(
+		    function (fv) {
+			var t = {};
+
+			RELEASE_OBJECT_KEYS.forEach(function (k) {
+				if (fv[k]) {
+					t[k] = fv[k];
+				}
+			});
+
+			return (t);
+		});
+	}
+
+	if (issue.fields.issuelinks) {
+		var links = [];
+
+		for (var i = 0; i < issue.fields.issuelinks.length; i++) {
+			var il = issue.fields.issuelinks[i];
+			var ilo = {
+				id: il.id,
+				type: {
+					id: il.type.id,
+					name: il.type.name,
+					inward: il.type.inward,
+					outward: il.type.outward
+				}
+			};
+			var push = false;
+
+			if (il.outwardIssue &&
+			    allow_issue(il.outwardIssue.key, other_issues)) {
+				push = true;
+				ilo.outwardIssue = {
+					id: il.outwardIssue.id,
+					key: il.outwardIssue.key,
+					fields: {
+						summary: il.outwardIssue
+						    .fields.summary
+					}
+				};
+			}
+
+			if (il.inwardIssue &&
+			    allow_issue(il.inwardIssue.key, other_issues)) {
+				push = true;
+				ilo.inwardIssue = {
+					id: il.inwardIssue.id,
+					key: il.inwardIssue.key,
+					fields: {
+						summary: il.inwardIssue
+						    .fields.summary
+					}
+				};
+			}
+
+			if (push) {
+				links.push(ilo);
+			}
+		}
+
+		out.fields.issuelinks = links;
+	}
+
+	out.fields.labels = issue.fields.labels.filter(is_allowed_label);
+
+	copy_simple('description');
+
+	function copy_author(fname, cfrom, cto) {
+		if (!cfrom[fname]) {
+			return;
+		}
+
+		cto[fname] = {
+			name: cfrom[fname].name,
+			key: cfrom[fname].key,
+			emailAddress: cfrom[fname].emailAddress,
+			displayName: cfrom[fname].displayName
+		};
+	}
+
+	if (issue.fields.comment) {
+		var cout = { maxResults: 0, total: 0, startAt: 0,
+		    comments: [] };
+		var c = issue.fields.comment;
+
+		if (c.maxResults !== c.total) {
+			LOG.error({
+				issue: issue.key,
+				total: c.total,
+				maxResults: c.maxResults
+			}, 'comment maxResults and total not equal for issue');
+		}
+
+		for (i = 0; i < c.comments.length; i++) {
+			var com = c.comments[i];
+
+			if (com.visibility) {
+				/*
+				 * For now, skip comments with _any_
+				 * visibility rules.
+				 */
+				continue;
+			}
+
+			var outcom = {
+				id: com.id,
+				created: com.created,
+				updated: com.updated,
+				body: com.body
+			};
+
+			copy_author('author', com, outcom);
+			copy_author('updateAuthor', com, outcom);
+
+			cout.comments.push(outcom);
+			cout.maxResults++;
+			cout.total++;
+		}
+
+		out.fields.comment = cout;
+	}
+
+	return ({
+		issue: out,
+		remotelinks: remotelinks.map(function (rl) {
+			return ({
+				id: rl.id,
+				object: {
+					url: rl.object.url,
+					title: rl.object.title
+				}
+			});
+		})
+	});
+}
+
+function
+format_issue_finalise(issue, remotelinks)
+{
+	mod_assert.object(issue, 'issue');
 	mod_assert.arrayOfObject(remotelinks, 'remotelinks');
 
 	var i;
@@ -1295,27 +1576,20 @@ format_issue_finalise(issue, remotelinks, other_issues)
 
 		for (i = 0; i < issue.fields.issuelinks.length; i++) {
 			var il = issue.fields.issuelinks[i];
-			var ild;
 
-			if (il.outwardIssue &&
-			    allow_issue(il.outwardIssue.key, other_issues)) {
-				ild = other_issues[il.outwardIssue.key] ?
-				    ' ' + other_issues[il.outwardIssue.key]
-				    .fields.summary : '';
+			if (il.outwardIssue) {
 				links.push('<li>' + il.type.outward +
 				    ' <a href="' + il.outwardIssue.key + '">' +
-				    il.outwardIssue.key + '</a>' + ild +
+				    il.outwardIssue.key + '</a> ' +
+				    il.outwardIssue.fields.summary +
 				    '</li>');
 			}
 
-			if (il.inwardIssue &&
-			    allow_issue(il.inwardIssue.key, other_issues)) {
-				ild = other_issues[il.inwardIssue.key] ?
-				    ' ' + other_issues[il.inwardIssue.key]
-				    .fields.summary : '';
+			if (il.inwardIssue) {
 				links.push('<li>' + il.type.inward +
 				    ' <a href="' + il.inwardIssue.key + '">' +
-				    il.inwardIssue.key + '</a>' + ild +
+				    il.inwardIssue.key + '</a> ' +
+				    il.inwardIssue.fields.summary +
 				    '</li>');
 			}
 		}
@@ -1341,10 +1615,9 @@ format_issue_finalise(issue, remotelinks, other_issues)
 		out += '</ul></p>\n';
 	}
 
-	var labellinks = issue.fields.labels.filter(is_allowed_label).map(
-		function label_link(label) {
-			return make_label_link(label, false);
-		});
+	var labellinks = issue.fields.labels.map(function label_link(label) {
+		return make_label_link(label, false);
+	});
 	if (labellinks.length > 0) {
 		out += '<h2>Labels</h2>\n';
 		out += '<p>' + labellinks.join(', ') + '</p>\n';
@@ -1372,14 +1645,6 @@ format_issue_finalise(issue, remotelinks, other_issues)
 
 		for (i = 0; i < c.comments.length; i++) {
 			var com = c.comments[i];
-
-			if (com.visibility) {
-				/*
-				 * For now, skip comments with _any_
-				 * visibility rules.
-				 */
-				continue;
-			}
 
 			var cdtc = new Date(com.created);
 

@@ -19,7 +19,9 @@
 
 
 JS_FILES = \
-	jirapub.js
+	jirapub.js \
+	lib/backend_jira.js \
+	lib/backend_files.js
 JSSTYLE_FILES	= $(JS_FILES)
 JSSTYLE_FLAGS	= -f tools/jsstyle.conf
 ESLINT_FILES	= $(JS_FILES)

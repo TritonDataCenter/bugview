@@ -407,10 +407,11 @@ make_issue_index(log, format, label, req, res, next)
 		 * Construct paginated navigation links:
 		 */
 		var pagin = [];
-		pagin.push('<a href="index.html?offset=0&sort=' + sort +
+		var page = is_allowed_label(label) ? label : 'index.html';
+		pagin.push('<a href="' + page + '"?offset=0&sort=' + sort +
 		    '">First Page</a>');
 		if (offset > 0) {
-			pagin.push('<a href="index.html?offset=' +
+			pagin.push('<a href="' + page + '?offset=' +
 			    Math.max(offset - 50, 0) + '&sort=' + sort +
 			    '">Previous Page</a>');
 		}
@@ -421,7 +422,7 @@ make_issue_index(log, format, label, req, res, next)
 		}
 		if ((offset + 50) <= total) {
 			var nextp = (offset + 50) + '';
-			pagin.push('<a href="index.html?offset=' +
+			pagin.push('<a href="' + page + '?offset=' +
 			    nextp + '&sort=' + sort + '">Next Page</a>');
 		}
 

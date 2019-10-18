@@ -286,7 +286,7 @@ make_issue_index(log, format, label, req, res, next)
 	offset = Math.floor(offset / 50) * 50;
 
 	var valid_sorts = [ 'key', 'created', 'updated' ];
-	var sort = 'key';
+	var sort = 'updated';
 	if (req.query.sort && valid_sorts.indexOf(req.query.sort) !== -1) {
 		sort = req.query.sort;
 	}

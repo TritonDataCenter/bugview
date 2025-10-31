@@ -1,7 +1,7 @@
-0-*-stamp
-*.s[a-w][a-z]
-*.tgz
-config.json
-/build
-/coverage
-/node_modules
+/target
+
+# Generated OpenAPI specs (managed by openapi-manager)
+/openapi-specs/generated/
+
+# External specs are tracked in git
+!/openapi-specs/external/

@@ -1,0 +1,17 @@
+[package]
+name = "openapi-manager"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dropshot = { workspace = true }
+dropshot-api-manager = "0.1.1"
+dropshot-api-manager-types = "0.1.1"
+bugview-api = { path = "../apis/bugview-api" }
+anyhow = { workspace = true }
+camino = "1.1"
+clap = { workspace = true }
+
+[[bin]]
+name = "openapi-manager"
+path = "src/main.rs"

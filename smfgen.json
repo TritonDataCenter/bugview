@@ -1,8 +1,0 @@
-{
-  "ident": "bugview",
-  "category": "site",
-  "label": "Public Access JIRA Proxy",
-  "user": "bugview",
-  "group": "bugview",
-  "start": "/export/home/bugview/run"
-}

@@ -274,25 +274,43 @@ impl BugviewApi for BugviewServiceImpl {
         let ctx = rqctx.context();
         let key = path.into_inner().key;
 
-        let issue = ctx
-            .jira
-            .get_issue(&key)
-            .await
-            .map_err(|e| {
+        // Try to get the issue
+        let issue = match ctx.jira.get_issue(&key).await {
+            Ok(issue) => issue,
+            Err(e) => {
                 let msg = e.to_string();
-                if msg.contains("Issue not found") {
-                    HttpError::for_not_found(None, msg)
+                let (status_code, error_message) = if msg.contains("Issue not found") {
+                    (404, format!("Issue {} not found", key))
                 } else {
-                    HttpError::for_internal_error(format!("Failed to get issue: {}", e))
-                }
-            })?;
+                    (500, format!("Failed to retrieve issue: {}", e))
+                };
+
+                let html = ctx
+                    .html
+                    .render_error(status_code, &error_message)
+                    .unwrap_or_else(|_| format!("Error {}: {}", status_code, error_message));
+
+                return Ok(Response::builder()
+                    .status(status_code)
+                    .header("Content-Type", "text/html; charset=utf-8")
+                    .body(html.into())
+                    .unwrap());
+            }
+        };
 
         // Check if issue has the required label
         if !issue_has_public_label(&issue, &ctx.config.default_label) {
-            return Err(HttpError::for_not_found(
-                None,
-                format!("Issue {} is not public", key),
-            ));
+            let error_message = format!("Issue {} is not public", key);
+            let html = ctx
+                .html
+                .render_error(404, &error_message)
+                .unwrap_or_else(|_| format!("Error 404: {}", error_message));
+
+            return Ok(Response::builder()
+                .status(404)
+                .header("Content-Type", "text/html; charset=utf-8")
+                .body(html.into())
+                .unwrap());
         }
 
         // Fetch remote links and filter by allowed_domains

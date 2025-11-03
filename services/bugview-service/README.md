@@ -221,19 +221,18 @@ This Rust implementation provides feature parity with the original Node.js bugvi
 To maintain compatibility with existing `/bugview/{key}` URLs (e.g., from GitHub issues, documentation), add this nginx rewrite rule:
 
 ```nginx
-# Rewrite legacy /bugview/{issue-key} URLs to /bugview/issue/{issue-key}
-# Issue keys are typically PROJECT-NUMBER (e.g., OS-1234, TRITON-2520)
-location ~ ^/bugview/([A-Z][A-Z0-9]+-[0-9]+)$ {
-    rewrite ^/bugview/(.+)$ /bugview/issue/$1 last;
-}
+location ^~ /bugview {
+    # Rewrite legacy /bugview/{issue-key} URLs to /bugview/issue/{issue-key}
+    # Issue keys are typically PROJECT-NUMBER (e.g., OS-1234, TRITON-2520)
+    if ($request_uri ~ ^/bugview/([A-Z][A-Z0-9]+-[0-9]+)$) {
+        rewrite ^/bugview/(.+)$ /bugview/issue/$1 break;
+    }
 
-# Pass all other /bugview/ requests through unchanged
-location /bugview/ {
     proxy_pass http://localhost:8080;
 }
 ```
 
-This transparently rewrites URLs like `/bugview/OS-1234` to `/bugview/issue/OS-1234` before they reach the Rust service, while leaving all other endpoints (`/bugview/json/*`, `/bugview/fulljson/*`, `/bugview/label/*`, etc.) untouched.
+This transparently rewrites URLs like `/bugview/OS-1234` to `/bugview/issue/OS-1234` before they reach the Rust service, while leaving all other endpoints (`/bugview/json/*`, `/bugview/fulljson/*`, `/bugview/label/*`, etc.) untouched. The `break` flag ensures the rewritten URI is passed directly to the backend service.
 
 ## Troubleshooting
 

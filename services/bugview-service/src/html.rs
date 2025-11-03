@@ -229,6 +229,35 @@ impl HtmlRenderer {
         )
         .map_err(|e| anyhow::anyhow!("Failed to render page: {}", e))
     }
+
+    /// Render an error page
+    pub fn render_error(&self, status_code: u16, message: &str) -> Result<String> {
+        let title = match status_code {
+            404 => "Not Found",
+            500 => "Internal Server Error",
+            _ => "Error",
+        };
+
+        let content = format!(
+            r#"<div class="alert alert-danger">
+    <h1>{} - {}</h1>
+    <p>{}</p>
+    <p><a href="/bugview/index.html">Return to issue index</a></p>
+</div>"#,
+            status_code,
+            html_escape(title),
+            html_escape(message)
+        );
+
+        self.handlebars.render(
+            "primary",
+            &json!({
+                "title": title,
+                "container": content,
+            }),
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to render error page: {}", e))
+    }
 }
 
 /// Simple HTML escape function

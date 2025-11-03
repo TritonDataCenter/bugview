@@ -8,6 +8,7 @@ dropshot = { workspace = true }
 dropshot-api-manager = "0.1.1"
 dropshot-api-manager-types = "0.1.1"
 bugview-api = { path = "../apis/bugview-api" }
+jira-api = { path = "../apis/jira-api" }
 anyhow = { workspace = true }
 camino = "1.1"
 clap = { workspace = true }

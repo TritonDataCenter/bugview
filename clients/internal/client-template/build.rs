@@ -7,7 +7,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // OpenAPI specs are now managed by openapi-manager
     // Update this path to match your service's API name
-    let spec_path = "../openapi-specs/example-api/example-api.json";
+    // Note: For clients/internal/* use ../../../openapi-specs/generated/your-api.json
+    let spec_path = "../../../openapi-specs/generated/example-api.json";
 
     // Check if spec exists
     if Path::new(spec_path).exists() {

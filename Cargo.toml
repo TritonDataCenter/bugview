@@ -1,19 +1,18 @@
 [workspace]
 members = [
-    "xtask",
-    "services/bugview-service",
-    # "clients/external/jira-client",  # Temporarily disabled - Progenitor can't handle full JIRA spec
-    "clients/internal/jira-client",
     "apis/bugview-api",
     "apis/jira-api",
+    "cli/bugview-cli",
+    "clients/internal/bugview-client",
+    "clients/internal/jira-client",
     "openapi-manager",
+    "services/bugview-service",
 ]
-# Templates are excluded from workspace - they're meant to be copied, not compiled
-# exclude = ["api-template", "client-template", "service-template"]
 resolver = "2"
 
 [profile.release]
 panic = "abort"
+
 [workspace.dependencies]
 dropshot = { version = "0.16.4", features = [ "usdt-probes" ] }
 dropshot-api-manager = "0.1.1"
@@ -32,4 +31,3 @@ semver = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 openapiv3 = "2.0"
 camino = "1.1"
-

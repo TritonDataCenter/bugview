@@ -1,5 +1,7 @@
 # Triton Rust Monorepo Migration Guide
 
+<!-- Note: CLAUDE.md is a symlink to this file. Edit AGENTS.md directly, not CLAUDE.md. -->
+
 This monorepo provides a structured approach for migrating Node.js services to Rust while maintaining API compatibility through OpenAPI specifications.
 
 ## Migration Philosophy
@@ -18,21 +20,24 @@ Our migration strategy centers on **trait-based OpenAPI-driven development** to 
 ```
 triton-rust-monorepo/
 ├── apis/                    # API trait definitions (fast to compile)
+│   ├── api-template/       # Template for creating new API traits
 │   ├── bugview-api/        # Bugview public issue viewer API
 │   └── ...                 # Add more API definitions as needed
-├── api-template/           # Template for creating new API traits
 ├── services/               # Service implementations
+│   ├── service-template/   # Template for trait-based services
 │   ├── bugview-service/    # Bugview using external JIRA API
 │   └── ...                 # Add more services as needed
-├── service-template/       # Template for trait-based services
 ├── clients/                # Client libraries
 │   ├── internal/           # Clients for our trait-based APIs
+│   │   ├── client-template/ # Template for generating API clients
+│   │   ├── bugview-client/ # Bugview API client (Progenitor-generated)
+│   │   └── jira-client/    # Client for JIRA API subset
 │   └── external/           # Clients for external/legacy APIs
-│       └── jira-client/    # (Disabled: Progenitor can't handle full JIRA spec)
-├── client-template/        # Template for generating API clients
+├── cli/                    # Command-line applications
+│   └── bugview-cli/        # CLI for Bugview service
 ├── openapi-manager/        # OpenAPI spec management (dropshot-api-manager integration)
 ├── openapi-specs/          # OpenAPI specifications
-│   ├── generated/          # Generated from our trait-based APIs (gitignored)
+│   ├── generated/          # Generated from our trait-based APIs (checked into git)
 │   └── external/           # External API specs for reference (tracked in git)
 ├── xtask/                  # Build automation helpers
 └── tests/                  # Integration tests
@@ -60,7 +65,7 @@ triton-rust-monorepo/
 
 ```bash
 # 1. Copy the API template
-cp -r api-template apis/my-service-api
+cp -r apis/api-template apis/my-service-api
 cd apis/my-service-api
 
 # 2. Update Cargo.toml with your API name
@@ -91,7 +96,7 @@ pub trait MyServiceApi {
 
 ```bash
 # 1. Copy the service template
-cp -r service-template services/my-service
+cp -r services/service-template services/my-service
 cd services/my-service
 
 # 2. Add dependency on your API crate in Cargo.toml
@@ -123,37 +128,92 @@ See `services/bugview-service` for a complete working example.
 
 ### 3. Managing OpenAPI Specs
 
+**Important**: Generated OpenAPI specs are checked into git in `openapi-specs/generated/`. This enables:
+- Builds work without running openapi-manager first (jira-client depends on the checked-in spec)
+- API changes become visible in PRs through spec diffs
+- Version history tracks API evolution
+
 ```bash
-# Register your API in openapi-manager/src/main.rs
-# Then generate specs (much faster than compiling implementations!):
-cargo run -p openapi-manager -- generate --blessed-from-dir openapi-manager/openapi-specs-blessed
+# 1. Register your API in openapi-manager/src/main.rs
+
+# 2. Generate specs (much faster than compiling implementations!):
+cargo run -p openapi-manager -- generate
+
+# 3. Review the generated spec diffs:
+git diff openapi-specs/generated/
+
+# 4. Commit the updated specs:
+git add openapi-specs/generated/
+git commit -m "Update OpenAPI specs for my-api changes"
 
 # List managed APIs
 cargo run -p openapi-manager -- list
 
-# Check if specs are up-to-date
-cargo run -p openapi-manager -- check --blessed-from-dir openapi-manager/openapi-specs-blessed
+# Check if specs are up-to-date (use in CI):
+cargo run -p openapi-manager -- check
 ```
 
-The openapi-manager uses `stub_api_description()` which generates specs without needing to compile the full service implementation.
+The openapi-manager uses `stub_api_description()` which generates specs without needing to compile the full service implementation. The `check` command compares generated specs against what's committed in git to catch stale specs.
 
 ### 4. Generating Clients
 
 ```bash
 # 1. Copy client template
-cp -r client-template clients/my-service-client
-cd clients/my-service-client
+cp -r clients/internal/client-template clients/internal/my-service-client
+cd clients/internal/my-service-client
 
 # 2. Update build.rs to point to your OpenAPI spec:
-#    let spec_path = "../../openapi-specs/my-api.json";
+#    let spec_path = "../../../openapi-specs/generated/my-api.json";
 
-# 3. Build to generate client
+# 3. Build to generate client (reads the checked-in spec)
 cargo build
 
 # 4. Use the generated client
 ```
 
-### 5. Consuming External APIs (Interim Migration Pattern)
+**Note**: Client build.rs reads the spec from `openapi-specs/generated/` which is checked into git. This means clients can be built without running openapi-manager first.
+
+### 5. Building CLI Applications
+
+Once you have a generated client library, you can build command-line tools on top of it:
+
+```bash
+# 1. Create CLI directory structure
+mkdir -p cli/my-service-cli/src
+
+# 2. Create Cargo.toml
+cat > cli/my-service-cli/Cargo.toml <<EOF
+[package]
+name = "my-service-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "my-service"
+path = "src/main.rs"
+
+[dependencies]
+my-service-client = { path = "../../clients/internal/my-service-client" }
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+EOF
+
+# 3. Implement CLI in src/main.rs using the generated client
+# 4. Add 'cli/my-service-cli' to workspace Cargo.toml members list
+# 5. Build: cargo build -p my-service-cli
+```
+
+**Example**: See `cli/bugview-cli` for a complete working CLI that uses `bugview-client`.
+
+**Benefits of this approach**:
+- Type-safe client library handles all API communication
+- CLI focuses on user experience (argument parsing, output formatting)
+- API changes automatically flow through client regeneration
+- Client library can be reused by other applications
+
+### 6. Consuming External APIs (Interim Migration Pattern)
 
 When building new services that need to consume external/legacy APIs during migration:
 
@@ -208,13 +268,26 @@ impl ExternalApiClient {
 - Hand-writing 3-5 endpoint wrappers takes less time than debugging generated code
 - This pattern works great for migration: your NEW Rust service has a clean API while consuming the OLD API internally
 
-### 6. Testing and Validation
+### 7. Testing and Validation
 
 All services must include:
 - **Unit tests** for business logic
 - **Integration tests** against actual HTTP endpoints
 - **OpenAPI spec validation** (automated via openapi-manager)
 - **Client compatibility tests** using generated clients
+
+**CI Check for Stale Specs**: Add this to your CI pipeline to catch when specs are out of date:
+
+```bash
+# Verify OpenAPI specs are up-to-date with trait definitions
+cargo run -p openapi-manager -- check
+
+# This will fail if:
+# - API traits changed but specs weren't regenerated
+# - Specs in git don't match what would be generated
+```
+
+This ensures developers remember to regenerate and commit specs when they change API traits.
 
 ## Migration Checklist
 
@@ -225,6 +298,7 @@ For each service migration:
 - [ ] Define trait with `#[dropshot::api_description]` and endpoint methods
 - [ ] Register API in `openapi-manager/src/main.rs`
 - [ ] Generate OpenAPI spec: `cargo run -p openapi-manager -- generate`
+- [ ] Review and commit spec changes: `git add openapi-specs/generated/ && git commit`
 - [ ] Compare with Node.js service spec (if migrating)
 - [ ] Create service implementation in `services/my-service`
 - [ ] Implement the API trait with business logic

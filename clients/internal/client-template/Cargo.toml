@@ -1,23 +1,19 @@
 [package]
 name = "client-template"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
-[[bin]]
-name = "client-template"
-path = "src/main.rs"
+[lib]
+name = "client_template"
+path = "src/lib.rs"
 
 [dependencies]
-progenitor = { workspace = true }
 progenitor-client = { workspace = true }
-tokio = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-anyhow = { workspace = true }
-clap = { workspace = true }
-reqwest = { workspace = true }
 
 [build-dependencies]
 progenitor = { workspace = true }
 serde_json = { workspace = true }
-openapiv3 = "2.2"
+openapiv3 = { workspace = true }

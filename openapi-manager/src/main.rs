@@ -48,7 +48,6 @@ fn all_apis() -> Result<dropshot_api_manager::ManagedApis> {
             extra_validation: None,
         },
     ];
-
     let managed_apis = dropshot_api_manager::ManagedApis::new(apis)?;
     Ok(managed_apis)
 }

@@ -1,10 +1,1 @@
 /target
-
-# Generated OpenAPI specs are checked into git to:
-# 1. Make API changes visible in PRs
-# 2. Enable builds without running openapi-manager first
-# 3. Provide version history
-# Use 'cargo run -p openapi-manager -- check' in CI to verify they're up-to-date
-
-# External specs are tracked in git
-!/openapi-specs/external/

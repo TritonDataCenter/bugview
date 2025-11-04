@@ -65,10 +65,10 @@ impl TokenCache {
     fn store(&self, jira_token: String) -> String {
         use rand::Rng;
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let id: String = (0..12)
             .map(|_| {
-                let idx = rng.gen_range(0..62);
+                let idx = rng.random_range(0..62);
                 match idx {
                     0..=9 => (b'0' + idx) as char,
                     10..=35 => (b'a' + idx - 10) as char,
